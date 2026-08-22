@@ -1,8 +1,9 @@
 import * as api from "../services/api.js";
 import { runCtaAction } from "../services/actions.js";
+import { formatMoney } from "../utils/format.js";
 
 export async function render(container) {
-  const { participant, coordinator } = await api.getMe();
+  const { participant, coordinator, programCost } = await api.getMe();
 
   container.innerHTML = `
     <section class="screen active">
@@ -15,6 +16,7 @@ export async function render(container) {
         <div class="profile-row"><div class="small">ФИО</div><b>${participant.fullName}</b></div>
         <div class="profile-row"><div class="small">Программа</div><b>${participant.program} ${participant.season}</b></div>
         <div class="profile-row"><div class="small">CIEE ID</div><b>${participant.cieeId}</b></div>
+        <div class="profile-row"><div class="small">Стоимость программы</div><b>${formatMoney(programCost, "USD")}</b></div>
         <div class="profile-row"><div class="small">Telegram</div><b>${participant.telegramConnected ? "Подключён ✅" : "Не подключён"}</b></div>
       </div>
       <div class="card">
