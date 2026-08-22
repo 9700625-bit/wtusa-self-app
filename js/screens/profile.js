@@ -1,6 +1,6 @@
 import * as api from "../services/api.js";
 import { runCtaAction } from "../services/actions.js";
-import { formatMoney } from "../utils/format.js";
+import { formatMoney } from "../utils/format.js?v=2";
 
 export async function render(container) {
   const { participant, coordinator, programCost } = await api.getMe();
