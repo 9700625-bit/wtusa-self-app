@@ -50,9 +50,16 @@ async function handleStartParam() {
           return;
     }
 
-    if (startParam.type && startParam.rest && !window.location.hash) {
-          window.location.hash = `${startParam.type}/${startParam.rest}`;
-    }
+    // NOTE: intentionally not checking "!window.location.hash" here.
+        // Inside real Telegram clients the page loads with Telegram's own launch
+        // data already in the hash (e.g. "#tgWebAppData=...&tgWebAppVersion=..."),
+        // so that check was always false there and silently broke every deep
+        // link (both event_ and status_) whenever this was opened for real from
+        // a Telegram message, even though it worked fine in a plain browser tab
+        // where the hash starts empty. Always override with our own route.
+        if (startParam.type && startParam.rest) {
+                    window.location.hash = `${startParam.type}/${startParam.rest}`;
+        }
 }
 
 handleStartParam().finally(() => {
