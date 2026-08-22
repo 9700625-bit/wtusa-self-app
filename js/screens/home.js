@@ -1,6 +1,6 @@
 import * as api from "../services/api.js";
 import { runCtaAction } from "../services/actions.js";
-import { formatDate, formatMoney, daysUntil, daysLabel } from "../utils/format.js";
+import { formatDate, formatMoney, daysUntil, daysLabel } from "../utils/format.js?v=2";
 import { stageRoute } from "../utils/navigation.js";
 
 export async function render(container) {
@@ -33,7 +33,7 @@ export async function render(container) {
           ? `<div class="status">
               <span class="dot ${paymentDot}"></span>
               <div><b>${nearestPayment.label}</b>
-                <div class="sub">до ${formatDate(nearestPayment.deadline)} · ${formatMoney(nearestPayment.amount)}${
+                <div class="sub">до ${formatDate(nearestPayment.deadline)} · ${formatMoney(nearestPayment.amount, nearestPayment.currency)}${
                   paymentDays !== null ? ` · осталось ${daysLabel(paymentDays)}` : ""
                 }</div>
               </div>
