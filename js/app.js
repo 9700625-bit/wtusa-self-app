@@ -12,6 +12,7 @@ import * as payments from "./screens/payments.js";
 import * as profile from "./screens/profile.js";
 import * as statusDetail from "./screens/statusDetail.js";
 import * as celebration from "./screens/celebration.js";
+import * as events from "./screens/events.js";
 
 initTelegram();
 
@@ -22,6 +23,11 @@ registerScreen("payments", payments.render);
 registerScreen("profile", profile.render);
 registerScreen("status", statusDetail.render);
 registerScreen("celebration", celebration.render);
+// Deep link: t.me/bot/app?startapp=event_<groupId> -> #event/<groupId> (see
+// handleStartParam below). The screen itself always lists ALL of this
+// student's invitations — the groupId param isn't currently used to filter,
+// it's just what makes the link land on the right screen.
+registerScreen("event", events.render);
 
 const navEl = document.getElementById("bottom-nav");
 const contentEl = document.getElementById("screen-root");
@@ -32,30 +38,30 @@ setNavigateListener((screenName) => setActiveNav(navEl, screenName));
 // Deep link support (ТЗ §58/§78): either a one-time account-linking token
 // (?startapp=link_<token>) or a direct jump to a screen (?startapp=status_STUDENT_SIGNATURE).
 async function handleStartParam() {
-  const startParam = getStartParam();
-  if (!startParam) return;
+    const startParam = getStartParam();
+    if (!startParam) return;
 
-  if (startParam.type === "link" && startParam.rest) {
-    try {
-      await api.linkAccount(startParam.rest);
-    } catch (err) {
-      console.error("[app] account linking failed:", err);
+    if (startParam.type === "link" && startParam.rest) {
+          try {
+                  await api.linkAccount(startParam.rest);
+          } catch (err) {
+                  console.error("[app] account linking failed:", err);
+          }
+          return;
     }
-    return;
-  }
 
-  if (startParam.type && startParam.rest && !window.location.hash) {
-    window.location.hash = `${startParam.type}/${startParam.rest}`;
-  }
+    if (startParam.type && startParam.rest && !window.location.hash) {
+          window.location.hash = `${startParam.type}/${startParam.rest}`;
+    }
 }
 
 handleStartParam().finally(() => {
-  initRouter(contentEl);
+    initRouter(contentEl);
 });
 
 // The demo stage-switcher only makes sense on mock data — once a live
 // amoCRM-backed backend is configured, currentStageId is real and this
 // panel is never mounted.
 if (!isLiveBackendConfigured()) {
-  mountDemoPanel();
+    mountDemoPanel();
 }
