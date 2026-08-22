@@ -59,10 +59,14 @@ async function render() {
     await renderFn(containerEl, params);
   } catch (err) {
     console.error("[router] screen render failed:", resolvedName, err);
+    // TEMP: show the real error text on-screen while debugging the live
+    // backend (no devtools access inside Telegram) — revert to the plain
+    // "Не удалось загрузить экран" card once things are stable.
     containerEl.innerHTML = `
       <div class="card">
         <h2>Не удалось загрузить экран</h2>
         <div class="sub">Попробуйте вернуться на главную.</div>
+        <div class="small" style="margin-top:8px;color:var(--danger)">${(err && err.message) || String(err)}</div>
       </div>`;
   } finally {
     containerEl.removeAttribute("aria-busy");
