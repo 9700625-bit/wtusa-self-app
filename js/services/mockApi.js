@@ -15,93 +15,127 @@ import { deriveDashboard, deriveRoadmap, deriveStageDetail, derivePayments } fro
 const LATENCY_MS = 180;
 
 function delay(value) {
-  return new Promise((resolve) => setTimeout(() => resolve(value), LATENCY_MS));
+    return new Promise((resolve) => setTimeout(() => resolve(value), LATENCY_MS));
 }
 
 function clone(value) {
-  return JSON.parse(JSON.stringify(value));
+    return JSON.parse(JSON.stringify(value));
 }
 
 /** Snapshot of mockData.js in the flat shape deriveViews.js expects — the
  * same shape a live backend's `state` endpoint returns (see AmoCRM/Api.gs
  * stateForUser_ on the backend side). */
 function snapshotState() {
-  return {
-    participant: db.participant,
-    coordinator: db.coordinator,
-    currentStageId: db.currentStageId,
-    documents: db.documents,
-    payments: db.payments,
-    programCost: db.programCost,
-    visaFees: db.visaFees,
-    briefings: db.briefings,
-    visaInfo: db.visaInfo,
-    preDepartureChecklist: db.preDepartureChecklist,
-  };
+    return {
+          participant: db.participant,
+          coordinator: db.coordinator,
+          currentStageId: db.currentStageId,
+          documents: db.documents,
+          payments: db.payments,
+          programCost: db.programCost,
+          visaFees: db.visaFees,
+          briefings: db.briefings,
+          visaInfo: db.visaInfo,
+          preDepartureChecklist: db.preDepartureChecklist,
+    };
 }
 
 /** GET /me */
 export function getMe() {
-  return delay(clone({ participant: db.participant, coordinator: db.coordinator, programCost: db.programCost }));
+    return delay(clone({ participant: db.participant, coordinator: db.coordinator, programCost: db.programCost }));
 }
 
 /** GET /dashboard */
 export function getDashboard() {
-  return delay(clone(deriveDashboard(snapshotState())));
+    return delay(clone(deriveDashboard(snapshotState())));
 }
 
 /** GET /roadmap */
 export function getRoadmap() {
-  return delay(clone(deriveRoadmap(snapshotState())));
+    return delay(clone(deriveRoadmap(snapshotState())));
 }
 
 /** GET /roadmap/:stageId — status detail screen */
 export function getStageDetail(stageId) {
-  const detail = deriveStageDetail(snapshotState(), stageId);
-  return delay(detail ? clone(detail) : null);
+    const detail = deriveStageDetail(snapshotState(), stageId);
+    return delay(detail ? clone(detail) : null);
 }
 
 /** GET /documents */
 export function getDocuments() {
-  return delay(clone(db.documents));
+    return delay(clone(db.documents));
 }
 
 /** POST /documents/upload */
 export function uploadDocument(docId, _file) {
-  const updated = db.setDocumentStatus(docId, "review");
-  return delay(clone(updated));
+    const updated = db.setDocumentStatus(docId, "review");
+    return delay(clone(updated));
 }
 
 /** GET /payments */
 export function getPayments() {
-  return delay(clone(derivePayments(snapshotState())));
+    return delay(clone(derivePayments(snapshotState())));
 }
 
 /** GET /briefings */
 export function getBriefings() {
-  return delay(clone(db.briefings));
+    return delay(clone(db.briefings));
 }
 
 /** POST /support */
 export function postSupport(message) {
-  db.addSupportMessage(message);
-  return delay({ ok: true });
+    db.addSupportMessage(message);
+    return delay({ ok: true });
 }
 
 /** GET /pre-departure-checklist (extension of §31, not in §61 list but needed for that screen) */
 export function getPreDepartureChecklist() {
-  return delay(clone(db.preDepartureChecklist));
+    return delay(clone(db.preDepartureChecklist));
 }
 
 export function toggleChecklistItem(itemId) {
-  const item = db.preDepartureChecklist.find((i) => i.id === itemId);
-  if (item) item.done = !item.done;
-  return delay(clone(db.preDepartureChecklist));
+    const item = db.preDepartureChecklist.find((i) => i.id === itemId);
+    if (item) item.done = !item.done;
+    return delay(clone(db.preDepartureChecklist));
 }
 
 /** GET /visa */
 export function getVisaInfo() {
-  return delay(clone(db.visaInfo));
+    return delay(clone(db.visaInfo));
+}
+
+/** GET /events — mirrors the live backend's invite-only events shape. */
+let mockEvents = [
+  {
+        groupId: "evt_demo_briefing",
+        title: "Welcome Briefing",
+        description: "Вводный брифинг о программе SELF.",
+        slots: [
+          { id: "evt_demo_briefing_15", date: "2026-09-05", time: "15:00", location: "Офис ABC Universe", spotsLeft: 4 },
+          { id: "evt_demo_briefing_18", date: "2026-09-05", time: "18:00", location: "Офис ABC Universe", spotsLeft: 6 },
+              ],
+        status: "invited", // invited | confirmed | declined
+        chosenEventId: null,
+        attended: null,
+  },
+  ];
+
+export function getEvents() {
+    return delay(clone(mockEvents));
+}
+
+export function respondEvent(groupId, choice, chosenEventId) {
+    const ev = mockEvents.find((e) => e.groupId === groupId);
+    if (ev) {
+          if (choice === "decline") {
+                  ev.status = "declined";
+                  ev.chosenEventId = null;
+          } else {
+                  ev.status = "confirmed";
+                  ev.chosenEventId = chosenEventId;
+          }
+    }
+    return delay(ev ? clone(ev) : null);
 }
 
 /* ---------------------------------------------------------------------- *
@@ -113,10 +147,10 @@ export function getVisaInfo() {
  * configured (see app.js).                                               *
  * ---------------------------------------------------------------------- */
 export function _debugSetCurrentStage(stageId) {
-  db.setCurrentStageId(stageId);
-  return delay(true);
+    db.setCurrentStageId(stageId);
+    return delay(true);
 }
 
 export function _debugGetCurrentStageId() {
-  return db.currentStageId;
+    return db.currentStageId;
 }
