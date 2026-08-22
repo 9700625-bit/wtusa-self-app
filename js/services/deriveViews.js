@@ -27,8 +27,15 @@ import {
 } from "../config/roadmap.config.js";
 import { daysUntil } from "../utils/format.js";
 
+// Falls back to the very first stage if the backend ever sends a
+// currentStageId that doesn't match any known stage (e.g. a stale/unmapped
+// amoCRM status) — better to show something than to hard-crash the screen.
+function safeCurrentStage_(currentStageId) {
+  return getStage(currentStageId) || getStage("CONTRACT_SIGNED");
+}
+
 export function deriveActionCard(state) {
-  const stage = getStage(state.currentStageId);
+  const stage = safeCurrentStage_(state.currentStageId);
   if (!stage) return null;
   return {
     stageId: stage.id,
@@ -53,7 +60,7 @@ function nearestBriefing(state) {
 }
 
 export function deriveDashboard(state) {
-  const stage = getStage(state.currentStageId);
+  const stage = safeCurrentStage_(state.currentStageId);
   return {
     participant: state.participant,
     currentStage: stage,
@@ -89,7 +96,7 @@ export function derivePayments(state) {
   const paidTotal = (state.payments || [])
     .filter((p) => p.status === "paid" && (p.currency || "USD") === "USD")
     .reduce((s, p) => s + Number(p.amount || 0), 0);
-  const currentOrder = getStage(state.currentStageId).order;
+  const currentOrder = safeCurrentStage_(state.currentStageId).order;
   return {
     paidTotal,
     programCost: state.programCost,
