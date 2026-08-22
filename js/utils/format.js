@@ -15,8 +15,13 @@ export function formatDate(isoDate, opts = {}) {
   return `${day} ${month}${showYear ? " " + d.getFullYear() : ""}`;
 }
 
-export function formatMoney(amount) {
-  return `$${Number(amount).toLocaleString("en-US")}`;
+/** currency: "USD" (default) -> "$1,234"; "KZT" -> "200 000 ₸". */
+export function formatMoney(amount, currency = "USD") {
+  const n = Number(amount) || 0;
+  if (currency === "KZT") {
+    return `${n.toLocaleString("ru-RU")} ₸`;
+  }
+  return `$${n.toLocaleString("en-US")}`;
 }
 
 /** Days remaining until isoDate, relative to "today" (see NOW below). Negative = overdue. */
@@ -39,6 +44,7 @@ export function daysLabel(n) {
   return `${abs} ${word}`;
 }
 
-// Single fixed "today" for the whole prototype so relative deadlines stay
-// consistent across screens (matches the session's current date).
-export const NOW = new Date("2026-08-20T12:00:00");
+// Real "today" — was pinned to a fixed demo date during the Phase-1
+// mock-only prototype; now that deadlines come from the live backend,
+// "days left" needs to count down against the actual current time.
+export const NOW = new Date();
