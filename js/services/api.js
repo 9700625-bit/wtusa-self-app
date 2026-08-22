@@ -11,59 +11,65 @@ import * as mockApi from "./mockApi.js";
 import * as liveApi from "./liveApi.js";
 
 function backend() {
-  return isLiveBackendConfigured() ? liveApi : mockApi;
+    return isLiveBackendConfigured() ? liveApi : mockApi;
 }
 
 export function getMe() {
-  return backend().getMe();
+    return backend().getMe();
 }
 export function getDashboard() {
-  return backend().getDashboard();
+    return backend().getDashboard();
 }
 export function getRoadmap() {
-  return backend().getRoadmap();
+    return backend().getRoadmap();
 }
 export function getStageDetail(stageId) {
-  return backend().getStageDetail(stageId);
+    return backend().getStageDetail(stageId);
 }
 export function getDocuments() {
-  return backend().getDocuments();
+    return backend().getDocuments();
 }
 export function uploadDocument(docId, file) {
-  return backend().uploadDocument(docId, file);
+    return backend().uploadDocument(docId, file);
 }
 export function getPayments() {
-  return backend().getPayments();
+    return backend().getPayments();
 }
 export function getBriefings() {
-  return backend().getBriefings();
+    return backend().getBriefings();
 }
 export function postSupport(message) {
-  return backend().postSupport(message);
+    return backend().postSupport(message);
 }
 export function getPreDepartureChecklist() {
-  return backend().getPreDepartureChecklist();
+    return backend().getPreDepartureChecklist();
 }
 export function toggleChecklistItem(itemId) {
-  return backend().toggleChecklistItem(itemId);
+    return backend().toggleChecklistItem(itemId);
 }
 export function getVisaInfo() {
-  return backend().getVisaInfo();
+    return backend().getVisaInfo();
+}
+export function getEvents() {
+    return backend().getEvents();
+}
+export function respondEvent(groupId, choice, chosenEventId) {
+    return backend().respondEvent(groupId, choice, chosenEventId);
 }
 
 /** Live-only: consumes a one-time linking token (ТЗ §58). No-op on mock. */
 export function linkAccount(token) {
-  return isLiveBackendConfigured() ? liveApi.linkAccount(token) : Promise.resolve({ skipped: true });
+    return isLiveBackendConfigured() ? liveApi.linkAccount(token) : Promise.resolve({ skipped: true });
 }
 
 /* Demo-only helpers — only exist on the mock backend. Calling them while
  * the live backend is active is a programming error (the demo panel is
  * never mounted in that case — see app.js), so they intentionally throw. */
 export function _debugSetCurrentStage(stageId) {
-  if (isLiveBackendConfigured()) throw new Error("_debugSetCurrentStage is mock-only");
-  return mockApi._debugSetCurrentStage(stageId);
+    if (isLiveBackendConfigured()) throw new Error("_debugSetCurrentStage is mock-only");
+    return mockApi._debugSetCurrentStage(stageId);
 }
 export function _debugGetCurrentStageId() {
-  if (isLiveBackendConfigured()) throw new Error("_debugGetCurrentStageId is mock-only");
-  return mockApi._debugGetCurrentStageId();
+    if (isLiveBackendConfigured()) throw new Error("_debugGetCurrentStageId is mock-only");
+    return mockApi._debugGetCurrentStageId();
 }
