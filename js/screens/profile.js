@@ -19,17 +19,7 @@ export async function render(container) {
       </div>
       <div class="card">
         <h3>Ваш координатор</h3>
-        <div class="profile-row" style="align-items:center;gap:12px">
-          ${
-            coordinator.avatarUrl
-              ? `<img src="${coordinator.avatarUrl}" alt="${coordinator.name}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;flex-shrink:0" />`
-              : ""
-          }
-          <div>
-            <b>${coordinator.name}</b>
-            <div class="small">${coordinator.role}</div>
-          </div>
-        </div>
+        <div class="profile-row"><b>${coordinator.name}</b><div class="small">${coordinator.role}</div></div>
       </div>
       <button class="btn secondary" id="write-coordinator">Написать координатору</button>
     </section>`;
