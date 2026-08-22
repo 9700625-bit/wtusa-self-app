@@ -29,7 +29,7 @@ const DOC_STATUS_META = {
   ok: { tagClass: "ok", label: "Принят" },
   review: { tagClass: "review", label: "На проверке" },
   need: { tagClass: "need", label: "Исправить" },
-  miss: { tagClass: "miss", label: "Нужно загрузить" },
+  miss: { tagClass: "miss", label: "Нужно предоставить" },
 };
 
 export function docTagHtml(status) {
