@@ -3,11 +3,22 @@ const RU_MONTHS = [
   "июля", "августа", "сентября", "октября", "ноября", "декабря",
 ];
 
+// Google Sheets silently turns a plain "2026-12-21" string cell into a real
+// Date value, which Apps Script then sends to the frontend as a full
+// "2026-12-21T19:00:00.000Z" timestamp (UTC, shifted by the sheet's
+// timezone) instead of a plain date. Take just the first 10 chars so both
+// forms parse the same way, whichever one the backend happens to send.
+function dateOnly_(isoDate) {
+  if (!isoDate) return null;
+  const datePart = String(isoDate).slice(0, 10);
+  const d = new Date(datePart + "T00:00:00");
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /** '2026-10-15' -> '15 октября' (year appended only if different from today's year) */
 export function formatDate(isoDate, opts = {}) {
-  if (!isoDate) return null;
-  const d = new Date(isoDate + "T00:00:00");
-  if (Number.isNaN(d.getTime())) return isoDate;
+  const d = dateOnly_(isoDate);
+  if (!d) return isoDate || null;
   const day = d.getDate();
   const month = RU_MONTHS[d.getMonth()];
   const now = new Date();
@@ -26,8 +37,8 @@ export function formatMoney(amount, currency = "USD") {
 
 /** Days remaining until isoDate, relative to "today" (see NOW below). Negative = overdue. */
 export function daysUntil(isoDate) {
-  if (!isoDate) return null;
-  const target = new Date(isoDate + "T00:00:00");
+  const target = dateOnly_(isoDate);
+  if (!target) return null;
   const diffMs = target.getTime() - NOW.getTime();
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 }
