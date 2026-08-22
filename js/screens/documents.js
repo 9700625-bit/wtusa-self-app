@@ -1,15 +1,10 @@
 import * as api from "../services/api.js";
 import { docTagHtml } from "../components/statusBadge.js";
-
-const UPLOAD_LABEL = {
-  ok: "Заменить файл",
-  review: "Заменить файл",
-  need: "Загрузить новый файл",
-  miss: "Загрузить документ",
-};
+import { openTelegramLink, hapticImpact } from "../services/telegram.js";
 
 export async function render(container) {
-  const documents = await api.getDocuments();
+  const [documents, me] = await Promise.all([api.getDocuments(), api.getMe()]);
+  const coordinatorUsername = me.coordinator && me.coordinator.telegramUsername;
 
   const rowsHtml = documents
     .map(
@@ -34,31 +29,24 @@ export async function render(container) {
       </div>
       <div class="card">${rowsHtml}</div>
       <div class="card">
-        <h3>Загрузить документ</h3>
-        <div class="sub" style="margin-bottom:10px">Выберите документ, который хотите загрузить или заменить.</div>
-        <select id="doc-select" class="btn secondary" style="text-align:left;appearance:none">
-          ${documents.map((d) => `<option value="${d.id}">${d.type} — ${UPLOAD_LABEL[d.status]}</option>`).join("")}
-        </select>
-        <input type="file" id="doc-file-input" style="display:none" accept="image/*,.pdf" />
-        <button class="btn" id="doc-upload-btn" style="margin-top:10px">Выбрать файл</button>
-        <div class="sub" id="doc-upload-status" style="margin-top:8px"></div>
+        <h3>Как отправить документ</h3>
+        <div class="sub" style="margin-bottom:12px">
+          Пришлите фото или скан координатору в личные сообщения в Telegram — как только он его проверит, статус здесь обновится сам.
+          Если у вас на руках только бумажный паспорт — принесите его в офис, мы сделаем скан на месте.
+        </div>
+        ${
+          coordinatorUsername
+            ? `<button class="btn" id="doc-write-coordinator-btn">Написать координатору</button>`
+            : `<div class="small">Координатор ещё не назначен — уточните у ABC Universe.</div>`
+        }
       </div>
     </section>`;
 
-  const select = container.querySelector("#doc-select");
-  const fileInput = container.querySelector("#doc-file-input");
-  const uploadBtn = container.querySelector("#doc-upload-btn");
-  const uploadStatus = container.querySelector("#doc-upload-status");
-
-  uploadBtn.addEventListener("click", () => fileInput.click());
-
-  fileInput.addEventListener("change", async () => {
-    const file = fileInput.files[0];
-    if (!file) return;
-    uploadStatus.textContent = "Загрузка…";
-    const docId = select.value;
-    await api.uploadDocument(docId, file);
-    uploadStatus.textContent = `Готово — «${file.name}» отправлен на проверку.`;
-    render(container); // refresh statuses
-  });
+  const writeBtn = container.querySelector("#doc-write-coordinator-btn");
+  if (writeBtn) {
+    writeBtn.addEventListener("click", () => {
+      hapticImpact("light");
+      openTelegramLink(`https://t.me/${coordinatorUsername}`);
+    });
+  }
 }
