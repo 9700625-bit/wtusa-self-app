@@ -136,6 +136,11 @@ function adminCreateEventAndInvite_(payload) {
   const location = String((payload && payload.location) || "").trim();
   const slots = Array.isArray(payload && payload.slots) ? payload.slots : [];
   const telegramIds = Array.isArray(payload && payload.telegramIds) ? payload.telegramIds : [];
+  // Optional: ties this event to a roadmap stage so that marking a
+  // student's invitation attended="yes" lights up a badge on their
+  // Roadmap screen (see attendedRoadmapStageIds_ below). Left blank for
+  // one-off/unplanned briefings that shouldn't touch the app at all.
+  const roadmapStageId = String((payload && payload.roadmapStageId) || "").trim();
 
   if (!title) throw new Error("Укажите название мероприятия.");
   if (!slots.length) throw new Error("Добавьте хотя бы одно время.");
@@ -153,6 +158,7 @@ function adminCreateEventAndInvite_(payload) {
       time: String(slot.time || ""),
       location: location,
       capacity: slot.capacity ? Number(slot.capacity) : "",
+        roadmap_stage_id: roadmapStageId,
     });
   });
 
@@ -209,4 +215,23 @@ function sendPendingEventInvites() {
   });
 
   Logger.log("Sent " + pending.length + " invitation(s).");
+}
+
+/** Roadmap stage ids this student should show an "attended" badge for --
+ * i.e. they have an EventInvitations row with attended="yes" whose event
+ * was linked to a roadmap stage when the coordinator created it. Ad-hoc
+ * events created with no roadmap_stage_id never show up here, by design. */
+function attendedRoadmapStageIds_(telegramId) {
+  const attendedGroupIds = findRows("EventInvitations", "telegram_id", telegramId)
+    .filter((r) => r.attended === "yes")
+    .map((r) => r.group_id);
+  if (!attendedGroupIds.length) return [];
+
+  const events = getRows("Events");
+  const stageIds = new Set();
+  attendedGroupIds.forEach((groupId) => {
+    const evt = events.find((e) => e.group_id === groupId && e.roadmap_stage_id);
+    if (evt) stageIds.add(evt.roadmap_stage_id);
+  });
+  return Array.from(stageIds);
 }
