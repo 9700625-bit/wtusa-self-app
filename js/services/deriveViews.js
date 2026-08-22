@@ -84,7 +84,11 @@ export function deriveStageDetail(state, stageId) {
 }
 
 export function derivePayments(state) {
-  const paidTotal = (state.payments || []).filter((p) => p.status === "paid").reduce((s, p) => s + p.amount, 0);
+  // Only USD-denominated payments count toward the top "Оплачено" figure —
+  // Payment 1 is pure KZT with no $ amount, so it can't be summed in.
+  const paidTotal = (state.payments || [])
+    .filter((p) => p.status === "paid" && (p.currency || "USD") === "USD")
+    .reduce((s, p) => s + Number(p.amount || 0), 0);
   const currentOrder = getStage(state.currentStageId).order;
   return {
     paidTotal,
