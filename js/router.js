@@ -11,6 +11,7 @@ const screens = new Map(); // name -> async (container, params) => void
 let containerEl = null;
 let onNavigate = null; // optional callback(screenName) for nav highlighting
 const historyStack = [];
+let lastRenderedHash = null;
 
 export function registerScreen(name, renderFn) {
   screens.set(name, renderFn);
@@ -23,7 +24,7 @@ export function setNavigateListener(fn) {
 export function navigate(path) {
   if (window.location.hash === "#" + path) {
     // Same hash won't trigger hashchange — force a re-render.
-    render();
+    render(true);
   } else {
     window.location.hash = path;
   }
@@ -43,16 +44,33 @@ function parseHash() {
   return { name: name || "home", params: rest };
 }
 
-async function render() {
-  if (!containerEl) return;
-  const { name, params } = parseHash();
-  const renderFn = screens.get(name) || screens.get("home");
-  const resolvedName = screens.has(name) ? name : "home";
+async function render(force) {
+    if (!containerEl) return;
 
-  const currentEntry = window.location.hash.replace(/^#\/?/, "") || "home";
-  if (historyStack[historyStack.length - 1] !== currentEntry) {
-    historyStack.push(currentEntry);
-  }
+    // Dedup: app.js sets window.location.hash itself for deep links (before
+    // this hashchange listener even exists yet), then immediately calls
+    // initRouter() -> render() for that same hash. The browser still queues a
+    // native hashchange for that change and fires it once the listener is
+    // attached, which used to cause every deep-linked open (event_/status_)
+    // to render twice and double-fire that screen's data fetch. Skip a render
+    // that targets the exact hash we just rendered, unless explicitly forced
+    // (navigate() passes force=true for its own same-hash re-render case).
+    const hash = window.location.hash;
+    if (!force && hash === lastRenderedHash) return;
+    lastRenderedHash = hash;
+
+    const { name, params } = parseHash();
+    const renderFn = screens.get(name) || screens.get("home");
+    const resolvedName = screens.has(name) ? name : "home";
+
+    // Use the resolved screen name/params, not the raw hash: on a normal
+    // (non-deep-link) Telegram launch the hash still holds Telegram's own
+    // launch payload the first time render() runs, and that must never end up
+    // in historyStack (goBack() would then navigate to it).
+    const currentEntry = resolvedName + (params.length ? "/" + params.join("/") : "");
+    if (historyStack[historyStack.length - 1] !== currentEntry) {
+          historyStack.push(currentEntry);
+    }
 
   containerEl.setAttribute("aria-busy", "true");
   try {
@@ -78,6 +96,6 @@ async function render() {
 
 export function initRouter(container) {
   containerEl = container;
-  window.addEventListener("hashchange", render);
+  window.addEventListener("hashchange", () => render());
   render();
 }
