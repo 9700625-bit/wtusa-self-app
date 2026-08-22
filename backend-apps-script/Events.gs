@@ -162,7 +162,8 @@ function adminCreateEventAndInvite_(payload) {
   const text =
     "📅 Приглашение: " + title + "\n\nОткройте приложение, чтобы выбрать время и записаться (или отказаться, если не сможете прийти).\n" + link;
 
-  let sent = 0;
+let sent = 0;
+  const failures = [];
   telegramIds.forEach((telegramId) => {
     appendRow("EventInvitations", {
       telegram_id: String(telegramId),
@@ -171,12 +172,16 @@ function adminCreateEventAndInvite_(payload) {
       invited_at: new Date(),
       notified: "yes",
     });
-    sendTelegramMessage(String(telegramId), text);
+    const result = sendTelegramMessage(String(telegramId), text);
+    if (result && result.ok === false) {
+      failures.push({ telegramId: String(telegramId), error: result.description || "unknown Telegram error" });
+    } else {
+      sent++;
+    }
     logEvent(String(telegramId), "coordinator", "event_invite_sent", "", groupId);
-    sent++;
   });
 
-  return { groupId: groupId, sent: sent };
+  return { groupId: groupId, sent: sent, failures: failures };
 }
 
 /** Coordinator runs this manually (see workflow note at the top of this
