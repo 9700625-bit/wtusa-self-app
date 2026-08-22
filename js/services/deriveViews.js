@@ -25,7 +25,7 @@ import {
   nextStage,
   GROUPS,
 } from "../config/roadmap.config.js";
-import { daysUntil } from "../utils/format.js";
+import { daysUntil } from "../utils/format.js?v=2";
 
 // Falls back to the very first stage if the backend ever sends a
 // currentStageId that doesn't match any known stage (e.g. a stale/unmapped
