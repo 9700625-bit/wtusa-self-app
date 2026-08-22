@@ -187,16 +187,27 @@
               });
       }
   
-    async function init() {
-          const gateSubmit = document.getElementById("gate-submit");
-          const secretInput = document.getElementById("secret-input");
-      
-          async function tryEnter() {
-                  const value = secretInput.value.trim();
-                  if (!value) return;
-                          localStorage.setItem(SECRET_KEY, value);
-                  await loadMain();
-          }
+let entering = false; // guards against a double-click/double-Enter firing tryEnter() twice
+        let mainLoaded = false; // guards against loadMain() ever running (and re-binding listeners) twice
+
+        async function init() {
+                const gateSubmit = document.getElementById("gate-submit");
+                const secretInput = document.getElementById("secret-input");
+
+                async function tryEnter() {
+                          if (entering) return;
+                          const value = secretInput.value.trim();
+                          if (!value) return;
+                          entering = true;
+                          gateSubmit.disabled = true;
+                          try {
+                                      localStorage.setItem(SECRET_KEY, value);
+                                      await loadMain();
+                          } finally {
+                                      entering = false;
+                                      gateSubmit.disabled = false;
+                          }
+                }
           gateSubmit.addEventListener("click", tryEnter);
           secretInput.addEventListener("keydown", (e) => {
                   if (e.key === "Enter") tryEnter();
@@ -208,6 +219,13 @@
     }
   
     async function loadMain() {
+            // Without this, a double-click on "Войти" (or Enter then a click
+            // while the first request is in flight) would call loadMain() twice
+            // -- re-adding the "add-slot"/"search-people"/"submit-btn" listeners
+            // a second time on top of the first, so a single later click on
+            // "Отправить приглашения" fires two adminCreateEvent calls and sends
+            // every invited student a duplicate Telegram message.
+            if (mainLoaded) return;
           const resultEl = document.getElementById("result");
           try {
                   people = await adminGet("adminListParticipants");
@@ -218,7 +236,8 @@
                   return;
           }
             
-                gateEl.style.display = "none";
+                mainLoaded = true;
+            gateEl.style.display = "none";
           mainEl.style.display = "block";
       
           addSlotRow();
@@ -226,7 +245,16 @@
           populateRoadmapStages();
       
           document.getElementById("add-slot").addEventListener("click", () => addSlotRow());
-          document.getElementById("search-people").addEventListener("input", (e) => renderPeople(e.target.value));
+          let searchDebounce = null;
+          document.getElementById("search-people").addEventListener("input", (e) => {
+                  // renderPeople() rebuilds the whole #people-list innerHTML and
+                  // rebinds a change listener on every checkbox row -- doing that on
+                  // every single keystroke is wasted work once someone's actually
+                  // typing a name.
+                  clearTimeout(searchDebounce);
+                  const value = e.target.value;
+                  searchDebounce = setTimeout(() => renderPeople(value), 200);
+          });
       
           document.getElementById("submit-btn").addEventListener("click", async () => {
                   resultEl.className = "";
