@@ -15,7 +15,7 @@
  *   GET  ?action=adminCreateLink&dealId=...&secret=<ADMIN_SECRET> -> ready-to-send
  *        Telegram linking link for one amoCRM deal (used by admin.html — see SETUP.md §5.3)
  *   GET  ?action=adminListParticipants&secret=<ADMIN_SECRET>       -> name list for admin-events.html
- *   POST ?action=adminCreateEvent&secret=<ADMIN_SECRET>  body:{title, description, location, slots:[{date,time,capacity}], telegramIds:[...]}
+ *   POST ?action=adminCreateEvent&secret=<ADMIN_SECRET>  body:{title, description, location, slots:[{date,time,capacity}], telegramIds:[...], roadmapStageId?}
  *        -> creates the event slot(s), invites the given students, sends the Telegram notification (admin-events.html)
  *
  * IMPORTANT CORS gotcha: Apps Script Web Apps don't implement CORS preflight
@@ -188,6 +188,7 @@ function stateForUser_(telegramUser) {
       passportStatus: visaRow.passport_status || "waiting",
     },
     preDepartureChecklist: checklist,
+    attendedRoadmapStageIds: attendedRoadmapStageIds_(telegramId),
   };
 }
 
