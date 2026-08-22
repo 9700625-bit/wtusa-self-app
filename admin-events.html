@@ -1,236 +1,244 @@
 <!doctype html>
-  <html lang="ru">
+<html lang="ru">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Приглашения на мероприятия — ABC Universe</title>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Приглашения на мероприятия — ABC Universe</title>
     <link rel="stylesheet" href="css/styles.css" />
     <style>
-      /* This page is a coordinator tool, not the Mini App — wider layout,
-         not the 460px phone-width container the app itself uses. */
-      .app{max-width:640px}
-    .field{margin-bottom:14px}
-    .field label{display:block;font-size:13px;font-weight:700;margin-bottom:6px;color:var(--navy)}
-    .field input, .field textarea{
-            width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
-      font-family:inherit;font-size:14px;background:#fff;
-      }
-    .slot-row{display:grid;grid-template-columns:1fr 1fr 110px auto;gap:8px;align-items:end;margin-bottom:8px}
-    .slot-row .field{margin-bottom:0}
-    .remove-slot{background:#fdebec;color:var(--danger);border:0;border-radius:10px;width:38px;height:38px;cursor:pointer;font-size:16px}
+          /* This page is a coordinator tool, not the Mini App — wider layout,
+             not the 460px phone-width container the app itself uses. */
+          .app{max-width:640px}
+          .field{margin-bottom:14px}
+          .field label{display:block;font-size:13px;font-weight:700;margin-bottom:6px;color:var(--navy)}
+          .field input, .field textarea{
+                  width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+                  font-family:inherit;font-size:14px;background:#fff;
+          }
+          .slot-row{display:grid;grid-template-columns:1fr 1fr 110px auto;gap:8px;align-items:end;margin-bottom:8px}
+          .slot-row .field{margin-bottom:0}
+          .remove-slot{background:#fdebec;color:var(--danger);border:0;border-radius:10px;width:38px;height:38px;cursor:pointer;font-size:16px}
           .search-box{margin-bottom:10px}
           .people-list{max-height:280px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:4px}
-    .person-row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid var(--line);cursor:pointer}
-    .person-row:last-child{border-bottom:0}
-    .person-row:hover{background:rgba(15,35,68,.03)}
-    .person-row input{width:16px;height:16px}
-    .person-stage{margin-left:auto;font-size:11px;color:var(--muted)}
-    .selected-count{font-size:13px;color:var(--muted);margin:8px 0 14px}
-    #gate{max-width:340px;margin:80px auto;padding:0 16px}
-    #result{margin-top:14px}
-    #result.ok{color:var(--ok)}
-    #result.err{color:var(--danger)}
-  </style>
-    </head>
-    <body>
+          .person-row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid var(--line);cursor:pointer}
+          .person-row:last-child{border-bottom:0}
+          .person-row:hover{background:rgba(15,35,68,.03)}
+          .person-row input{width:16px;height:16px}
+          .person-stage{margin-left:auto;font-size:11px;color:var(--muted)}
+          .selected-count{font-size:13px;color:var(--muted);margin:8px 0 14px}
+          #gate{max-width:340px;margin:80px auto;padding:0 16px}
+          #result{margin-top:14px;white-space:pre-line}
+          #result.ok{color:var(--ok)}
+          #result.err{color:var(--danger)}
+        </style>
+  </head>
+  <body>
 
     <div id="gate">
-      <div class="card">
-        <h2>Вход</h2>
-        <div class="field">
-          <label for="secret-input">Секретный код</label>
-          <input id="secret-input" type="password" placeholder="ADMIN_SECRET" />
-        </div>
-        <button class="btn" id="gate-submit">Войти</button>
-        <div class="sub" style="margin-top:10px">Код узнайте у того, кто настраивал приложение — он же используется для ссылок привязки участников.</div>
-      </div>
-    </div>
-
-    <div class="app" id="main" style="display:none">
-      <header class="top">
-        <div class="brand"><b>Приглашения на мероприятия</b></div>
-      </header>
-      <main class="content">
         <div class="card">
-          <h2>Новое мероприятие</h2>
-          <div class="field">
-            <label for="f-title">Название</label>
-            <input id="f-title" placeholder="Брифинг 3" />
-          </div>
-          <div class="field">
-            <label for="f-desc">Описание</label>
-            <textarea id="f-desc" rows="2" placeholder="Коротко, что это за встреча"></textarea>
-          </div>
-          <div class="field">
-            <label for="f-location">Место</label>
-            <input id="f-location" placeholder="Офис ABC Universe" />
-          </div>
-
-          <label style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;color:var(--navy)">Время (можно несколько — студент выберет одно)</label>
-          <div id="slots"></div>
-          <button class="btn secondary" id="add-slot" style="margin-bottom:16px">+ Добавить время</button>
-
-          <label style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;color:var(--navy)">Кого пригласить</label>
-      <div class="search-box">
-            <input id="search-people" placeholder="Поиск по имени…" />
-          </div>
-          <div class="people-list" id="people-list"></div>
-          <div class="selected-count" id="selected-count">Выбрано: 0</div>
-
-          <button class="btn" id="submit-btn">Отправить приглашения</button>
-          <div id="result"></div>
-        </div>
-      </main>
-</div>
-
-    <script type="module">
-      import { BACKEND_URL } from "./js/services/config.js";
-
-  const SECRET_KEY = "wtusa_admin_secret";
-  const gateEl = document.getElementById("gate");
-  const mainEl = document.getElementById("main");
-
-  let people = []; // { telegramId, name, stage }
-  let slotCount = 0;
-
-  function secret() {
-        return localStorage.getItem(SECRET_KEY) || "";
-  }
-
-  async function adminGet(action, extraParams) {
-    const params = new URLSearchParams({ action, secret: secret(), ...(extraParams || {}) });
-    const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, { method: "GET" });
-    const json = await resp.json();
-    if (json.error) throw new Error(json.error);
-    return json;
-}
-
-  async function adminPost(action, payload) {
-    const params = new URLSearchParams({ action, secret: secret() });
-    const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload || {}),
-});
-    const json = await resp.json();
-    if (json.error) throw new Error(json.error);
-    return json;
-}
-
-  function addSlotRow(prefill) {
-    const id = slotCount++;
-    const row = document.createElement("div");
-    row.className = "slot-row";
-    row.dataset.slotId = id;
-    row.innerHTML = `
-      <div class="field"><label>Дата</label><input type="date" class="slot-date" value="${(prefill && prefill.date) || ""}" /></div>
-      <div class="field"><label>Время</label><input type="time" class="slot-time" value="${(prefill && prefill.time) || ""}" /></div>
-      <div class="field"><label>Мест (необ.)</label><input type="number" min="1" class="slot-capacity" placeholder="—" /></div>
-      <button type="button" class="remove-slot" title="Убрать это время">✕</button>
-    `;
-    row.querySelector(".remove-slot").addEventListener("click", () => {
-      if (document.querySelectorAll(".slot-row").length > 1) row.remove();
-});
-    document.getElementById("slots").appendChild(row);
-}
-
-  function collectSlots() {
-    return Array.from(document.querySelectorAll(".slot-row"))
-      .map((row) => ({
-        date: row.querySelector(".slot-date").value,
-        time: row.querySelector(".slot-time").value,
-        capacity: row.querySelector(".slot-capacity").value || "",
-}))
-      .filter((s) => s.date);
-}
-
-  function renderPeople(filterText) {
-    const listEl = document.getElementById("people-list");
-    const q = (filterText || "").trim().toLowerCase();
-    const filtered = q ? people.filter((p) => p.name.toLowerCase().includes(q)) : people;
-    listEl.innerHTML = filtered
-      .map(
-        (p) => `
-        <label class="person-row">
-          <input type="checkbox" class="person-check" value="${p.telegramId}" />
-          <span>${p.name}</span>
-          <span class="person-stage">${p.stage}</span>
-        </label>`
-      )
-      .join("") || `<div class="sub" style="padding:12px">Никого не найдено.</div>`;
-    listEl.querySelectorAll(".person-check").forEach((cb) => cb.addEventListener("change", updateSelectedCount));
-}
-
-  function updateSelectedCount() {
-    const n = document.querySelectorAll(".person-check:checked").length;
-    document.getElementById("selected-count").textContent = `Выбрано: ${n}`;
-}
-
-  async function init() {
-    const gateSubmit = document.getElementById("gate-submit");
-    const secretInput = document.getElementById("secret-input");
-
-    async function tryEnter() {
-      const value = secretInput.value.trim();
-      if (!value) return;
-      localStorage.setItem(SECRET_KEY, value);
-      await loadMain();
-}
-    gateSubmit.addEventListener("click", tryEnter);
-    secretInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") tryEnter();
-});
-
-    if (secret()) {
-      await loadMain();
-}
-}
-
-  async function loadMain() {
-    const resultEl = document.getElementById("result");
-    try {
-      people = await adminGet("adminListParticipants");
-} catch (err) {
-      localStorage.removeItem(SECRET_KEY);
-      alert("Не удалось войти: " + (err.message || "проверьте код"));
-      return;
-}
-
-    gateEl.style.display = "none";
-    mainEl.style.display = "block";
-
-    addSlotRow();
-    renderPeople("");
-
-    document.getElementById("add-slot").addEventListener("click", () => addSlotRow());
-    document.getElementById("search-people").addEventListener("input", (e) => renderPeople(e.target.value));
-
-    document.getElementById("submit-btn").addEventListener("click", async () => {
-      resultEl.className = "";
-      resultEl.textContent = "";
-
-      const title = document.getElementById("f-title").value.trim();
-      const description = document.getElementById("f-desc").value.trim();
-      const location = document.getElementById("f-location").value.trim();
-      const slots = collectSlots();
-      const telegramIds = Array.from(document.querySelectorAll(".person-check:checked")).map((cb) => cb.value);
-
-      const btn = document.getElementById("submit-btn");
-      btn.disabled = true;
-      try {
-        const res = await adminPost("adminCreateEvent", { title, description, location, slots, telegramIds });
-        resultEl.className = "ok";
-        resultEl.textContent = `Готово — отправлено приглашений: ${res.sent}.`;
-} catch (err) {
-        resultEl.className = "err";
-        resultEl.textContent = "Ошибка: " + (err.message || "попробуйте ещё раз");
-} finally {
-        btn.disabled = false;
-}
-});
-}
-
-  init();
-</script>
-</body>
+              <h2>Вход</h2>
+            <div class="field">
+                  <label for="secret-input">Секретный код</label>label>
+                  <input id="secret-input" type="password" placeholder="ADMIN_SECRET" />
+            </div>div>
+            <button class="btn" id="gate-submit">Войти</button>button>
+            <div class="sub" style="margin-top:10px">Код узнайте у того, кто настраивал приложение — он же используется для ссылок привязки участников.</div>div>
+        </div>div>
+    </div>div>
+  
+  <div class="app" id="main" style="display:none">
+    <header class="top">
+        <div class="brand"><b>Приглашения на мероприятия</b></div>div>
+    </header>header>
+    <main class="content">
+        <div class="card">
+              <h2>Новое мероприятие</h2>
+              <div class="field">
+                      <label for="f-title">Название</label>label>
+                      <input id="f-title" placeholder="Брифинг 3" />
+              </div>div>
+              <div class="field">
+                      <label for="f-desc">Описание</label>label>
+                      <textarea id="f-desc" rows="2" placeholder="Коротко, что это за встреча"></textarea>
+              </div>div>
+              <div class="field">
+                      <label for="f-location">Место</label>label>
+                      <input id="f-location" placeholder="Офис ABC Universe" />
+              </div>div>
+        
+              <label style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;color:var(--navy)">Время (можно несколько — студент выберет одно)</label>label>
+              <div id="slots"></div>div>
+              <button class="btn secondary" id="add-slot" style="margin-bottom:16px">+ Добавить время</button>button>
+        
+              <label style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;color:var(--navy)">Кого пригласить</label>label>
+              <div class="search-box">
+                      <input id="search-people" placeholder="Поиск по имени…" />
+              </div>div>
+              <div class="people-list" id="people-list"></div>div>
+              <div class="selected-count" id="selected-count">Выбрано: 0</div>div>
+        
+              <button class="btn" id="submit-btn">Отправить приглашения</button>button>
+              <div id="result"></div>div>
+        </div>div>
+    </main>main>
+  </div>div>
+  
+  <script type="module">
+    import { BACKEND_URL } from "./js/services/config.js";
+  
+    const SECRET_KEY = "wtusa_admin_secret";
+    const gateEl = document.getElementById("gate");
+    const mainEl = document.getElementById("main");
+  
+    let people = []; // { telegramId, name, stage }
+    let slotCount = 0;
+  
+    function secret() {
+          return localStorage.getItem(SECRET_KEY) || "";
+    }
+  
+    async function adminGet(action, extraParams) {
+          const params = new URLSearchParams({ action, secret: secret(), ...(extraParams || {}) });
+          const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, { method: "GET" });
+          const json = await resp.json();
+          if (json.error) throw new Error(json.error);
+                return json;
+    }
+  
+    async function adminPost(action, payload) {
+          const params = new URLSearchParams({ action, secret: secret() });
+          const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, {
+                  method: "POST",
+                  headers: { "Content-Type": "text/plain;charset=utf-8" }, // same CORS workaround as the app itself
+                  body: JSON.stringify(payload || {}),
+          });
+          const json = await resp.json();
+          if (json.error) throw new Error(json.error);
+                return json;
+    }
+  
+    function addSlotRow(prefill) {
+          const id = slotCount++;
+          const row = document.createElement("div");
+          row.className = "slot-row";
+          row.dataset.slotId = id;
+          row.innerHTML = `
+                <div class="field"><label>Дата</label><input type="date" class="slot-date" value="${(prefill && prefill.date) || ""}" /></div>
+                      <div class="field"><label>Время</label><input type="time" class="slot-time" value="${(prefill && prefill.time) || ""}" /></div>
+                            <div class="field"><label>Мест (необ.)</label><input type="number" min="1" class="slot-capacity" placeholder="—" /></div>
+                                  <button type="button" class="remove-slot" title="Убрать это время">✕</button>
+                                      `;
+          row.querySelector(".remove-slot").addEventListener("click", () => {
+                  if (document.querySelectorAll(".slot-row").length > 1) row.remove();
+          });
+          document.getElementById("slots").appendChild(row);
+    }
+  
+    function collectSlots() {
+          return Array.from(document.querySelectorAll(".slot-row"))
+                  .map((row) => ({
+                            date: row.querySelector(".slot-date").value,
+                            time: row.querySelector(".slot-time").value,
+                            capacity: row.querySelector(".slot-capacity").value || "",
+                  }))
+                  .filter((s) => s.date); // drop empty rows
+    }
+  
+    function renderPeople(filterText) {
+          const listEl = document.getElementById("people-list");
+          const q = (filterText || "").trim().toLowerCase();
+          const filtered = q ? people.filter((p) => p.name.toLowerCase().includes(q)) : people;
+          listEl.innerHTML = filtered
+                  .map(
+                            (p) => `
+                                    <label class="person-row">
+                                              <input type="checkbox" class="person-check" value="${p.telegramId}" />
+                                                        <span>${p.name}</span>
+                                                                  <span class="person-stage">${p.stage}</span>
+                                                                          </label>`
+                                    )
+                  .join("") || `<div class="sub" style="padding:12px">Никого не найдено.</div>`;
+          // Re-attach change listeners for the count.
+          listEl.querySelectorAll(".person-check").forEach((cb) => cb.addEventListener("change", updateSelectedCount));
+    }
+  
+    function updateSelectedCount() {
+          const n = document.querySelectorAll(".person-check:checked").length;
+          document.getElementById("selected-count").textContent = `Выбрано: ${n}`;
+    }
+  
+    async function init() {
+          const gateSubmit = document.getElementById("gate-submit");
+          const secretInput = document.getElementById("secret-input");
+      
+          async function tryEnter() {
+                  const value = secretInput.value.trim();
+                  if (!value) return;
+                          localStorage.setItem(SECRET_KEY, value);
+                  await loadMain();
+          }
+          gateSubmit.addEventListener("click", tryEnter);
+          secretInput.addEventListener("keydown", (e) => {
+                  if (e.key === "Enter") tryEnter();
+          });
+      
+          if (secret()) {
+                  await loadMain();
+          }
+    }
+  
+    async function loadMain() {
+          const resultEl = document.getElementById("result");
+          try {
+                  people = await adminGet("adminListParticipants");
+          } catch (err) {
+                  // Wrong/expired secret — drop it and stay on the gate screen.
+                  localStorage.removeItem(SECRET_KEY);
+                  alert("Не удалось войти: " + (err.message || "проверьте код"));
+                  return;
+          }
+            
+                gateEl.style.display = "none";
+          mainEl.style.display = "block";
+      
+          addSlotRow();
+          renderPeople("");
+      
+          document.getElementById("add-slot").addEventListener("click", () => addSlotRow());
+          document.getElementById("search-people").addEventListener("input", (e) => renderPeople(e.target.value));
+      
+          document.getElementById("submit-btn").addEventListener("click", async () => {
+                  resultEl.className = "";
+                  resultEl.textContent = "";
+            
+                                                                       const title = document.getElementById("f-title").value.trim();
+                  const description = document.getElementById("f-desc").value.trim();
+                  const location = document.getElementById("f-location").value.trim();
+                  const slots = collectSlots();
+                  const telegramIds = Array.from(document.querySelectorAll(".person-check:checked")).map((cb) => cb.value);
+            
+                                                                       const btn = document.getElementById("submit-btn");
+                  btn.disabled = true;
+                  try {
+                            const res = await adminPost("adminCreateEvent", { title, description, location, slots, telegramIds });
+                            if (res.failures && res.failures.length) {
+                                        resultEl.className = "err";
+                                        const lines = res.failures.map((f) => `${f.telegramId}: ${f.error}`).join("\n");
+                                        resultEl.textContent = `Отправлено: ${res.sent}. Не удалось отправить в Telegram (${res.failures.length}):\n${lines}`;
+                            } else {
+                                        resultEl.className = "ok";
+                                        resultEl.textContent = `Готово — отправлено приглашений: ${res.sent}.`;
+                            }
+                  } catch (err) {
+                            resultEl.className = "err";
+                            resultEl.textContent = "Ошибка: " + (err.message || "попробуйте ещё раз");
+                  } finally {
+                            btn.disabled = false;
+                  }
+          });
+    }
+  
+    init();
+  </script>
+  </body>
 </html>
