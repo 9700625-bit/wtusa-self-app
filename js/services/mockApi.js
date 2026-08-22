@@ -42,7 +42,7 @@ function snapshotState() {
 
 /** GET /me */
 export function getMe() {
-  return delay(clone({ participant: db.participant, coordinator: db.coordinator }));
+  return delay(clone({ participant: db.participant, coordinator: db.coordinator, programCost: db.programCost }));
 }
 
 /** GET /dashboard */
