@@ -72,11 +72,21 @@ export function deriveDashboard(state) {
 }
 
 export function deriveRoadmap(state) {
-  const groups = GROUPS.map((g) => ({
-    ...g,
-    stages: getStagesByGroup(g.id).map((s) => ({ ...s, status: stageStatus(s.id, state.currentStageId) })),
-  }));
-  return { currentStageId: state.currentStageId, progress: computeProgress(state.currentStageId), groups };
+    // Separate from status (done/current/upcoming, driven by amoCRM's
+    // currentStageId): a stage can independently show "attended" once a
+    // coordinator marks attended=yes on a linked event (see Events.gs
+    // attendedRoadmapStageIds_) -- it never moves the participant's actual
+    // pipeline position, just adds a small badge on top.
+    const attendedSet = new Set(state.attendedRoadmapStageIds || []);
+    const groups = GROUPS.map((g) => ({
+          ...g,
+          stages: getStagesByGroup(g.id).map((s) => ({
+                  ...s,
+                  status: stageStatus(s.id, state.currentStageId),
+                  attended: attendedSet.has(s.id),
+          })),
+    }));
+    return { currentStageId: state.currentStageId, progress: computeProgress(state.currentStageId), groups };
 }
 
 export function deriveStageDetail(state, stageId) {
