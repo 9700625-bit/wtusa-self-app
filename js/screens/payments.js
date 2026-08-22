@@ -1,6 +1,6 @@
 import * as api from "../services/api.js";
 import { paymentTagHtml } from "../components/statusBadge.js";
-import { formatDate, formatMoney, daysLabel } from "../utils/format.js";
+import { formatDate, formatMoney, daysLabel } from "../utils/format.js?v=2";
 
 function timingText(p) {
   if (p.status === "paid" && p.paidDate) return `Оплачено ${formatDate(p.paidDate)}`;
