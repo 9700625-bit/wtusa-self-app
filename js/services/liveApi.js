@@ -50,7 +50,7 @@ function invalidateState() {
 
 export async function getMe() {
   const state = await getState();
-  return { participant: state.participant, coordinator: state.coordinator };
+  return { participant: state.participant, coordinator: state.coordinator, programCost: state.programCost };
 }
 
 export async function getDashboard() {
