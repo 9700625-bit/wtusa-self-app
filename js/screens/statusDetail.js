@@ -107,6 +107,11 @@ export async function render(container, params) {
   });
   container.querySelectorAll("[data-checklist]").forEach((input) => {
     input.addEventListener("change", async () => {
+            // Lock the checkbox for the duration of the request -- without this,
+            // toggling it twice quickly races two overlapping toggleChecklistItem
+            // calls and can leave the checked state flipped the wrong number of
+            // times.
+            input.disabled = true;
       await api.toggleChecklistItem(input.dataset.checklist);
       render(container, params);
     });
