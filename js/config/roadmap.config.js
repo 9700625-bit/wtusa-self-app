@@ -1,9 +1,22 @@
 /**
  * Roadmap configuration — the single source of truth for stage copy, severity,
  * CTAs and ordering. Mirrors ТЗ §53 (SELF pipeline) and §54/§73 (config-driven
- * mapping). When the real backend exists, amoCRM stage IDs map 1:1 to the
- * `id` values here; the Backend "mapping" layer described in §54 becomes this
- * file (or its server-side twin) — screens never hardcode stage copy.
+ * mapping). Every `id` below corresponds 1:1 to a real amoCRM status in the
+ * "Сопровождение self" pipeline (id=9881242) — pulled via listAmoPipelineStatuses()
+ * (Setup.gs) on 2026-08-23. Do NOT add a stage here unless a matching amoCRM
+ * status actually exists — a stage with no real status can never be reached,
+ * because nothing on the backend can ever set current_stage_id to it.
+ *
+ * Two things intentionally do NOT appear as stages, by design:
+ *   - Briefings (Welcome + up to 4 more) run in PARALLEL with these CRM
+ *     stages, not as steps in the linear path — see "Мои мероприятия"
+ *     (js/screens/events.js) and Events.gs. A briefing CAN still be tied to
+ *     one of these stages via Events.roadmap_stage_id for the few that
+ *     should visually gate progress; most shouldn't.
+ *   - Pre-Departure checklist / Ready-to-fly / USA: amoCRM has no status
+ *     after "VISA APPROVE" (the deal is simply won from there), so that
+ *     whole tail is folded into VISA_APPROVED's own detail screen instead
+ *     of being separate stages nothing could ever move a deal into.
  *
  * severity: 'ok' | 'active' | 'wait' | 'warn' | 'danger'
  *   ok      — completed (🟢)
@@ -15,85 +28,29 @@
 
 export const GROUPS = [
   { id: "enrollment", order: 1, title: "Оформление", weight: 5 },
-  { id: "preparation", order: 2, title: "Подготовка", weight: 5 },
-  { id: "ciee", order: 3, title: "CIEE", weight: 15 },
-  { id: "job_offer", order: 4, title: "Job Offer", weight: 25 },
-  { id: "ds2019", order: 5, title: "DS-2019", weight: 10 },
-  { id: "visa", order: 6, title: "Visa", weight: 30 },
-  { id: "pre_departure", order: 7, title: "Перед вылетом", weight: 8 },
-  { id: "usa", order: 8, title: "USA", weight: 2 },
+  { id: "ciee", order: 2, title: "CIEE", weight: 20 },
+  { id: "job_offer", order: 3, title: "Job Offer", weight: 30 },
+  { id: "ds2019", order: 4, title: "DS-2019", weight: 10 },
+  { id: "visa", order: 5, title: "Visa", weight: 35 },
 ];
 
 // `order` is global and strictly increasing — used to derive done/current/upcoming.
 export const STAGES = [
   // ---------------------------------------------------------------- ОФОРМЛЕНИЕ
   {
-    id: "CONTRACT_SIGNED",
+    id: "ENROLLED",
     group: "enrollment",
     order: 1,
-    title: "Договор подписан",
-    shortTitle: "Договор",
+    title: "Оформились",
+    shortTitle: "Оформление",
     actionRequired: false,
     severity: "ok",
     icon: "📄",
-    description: "Договор на участие в программе SELF подписан.",
+    description: "Договор подписан, стартовые документы и Payment #1 приняты — вы официально в программе SELF.",
     detail: {
       whatsHappening: "Вы официально стали участником программы Work & Travel USA SELF 2027.",
       whatRequired: "Ничего — этот шаг уже пройден.",
-      whatsNext: "Предоставить первоначальный комплект документов и внести Payment #1.",
-    },
-    cta: null,
-  },
-  {
-    id: "INITIAL_SETUP",
-    group: "enrollment",
-    order: 2,
-    title: "Стартовые документы и Payment #1",
-    shortTitle: "Старт. документы",
-    actionRequired: false,
-    severity: "ok",
-    icon: "🧾",
-    description: "Первоначальные документы приняты, Payment #1 оплачен.",
-    detail: {
-      whatsHappening: "ABC Universe получила ваши стартовые документы и первую оплату.",
-      whatRequired: "Ничего — этот шаг уже пройден.",
-      whatsNext: "Регистрация в CIEE и запись на первый брифинг — эти процессы идут параллельно.",
-    },
-    cta: null,
-  },
-
-  // ---------------------------------------------------------------- ПОДГОТОВКА
-  {
-    id: "BRIEFING_WELCOME",
-    group: "preparation",
-    order: 3,
-    title: "Welcome Briefing",
-    shortTitle: "Welcome Briefing",
-    actionRequired: false,
-    severity: "ok",
-    icon: "🎤",
-    description: "Вводный брифинг о программе пройден.",
-    detail: {
-      whatsHappening: "Вы прошли вводный брифинг с общей информацией о программе SELF.",
-      whatRequired: "Ничего — этот шаг уже пройден.",
-      whatsNext: "Продолжайте заполнение CIEE и следите за расписанием следующих брифингов.",
-    },
-    cta: null,
-  },
-  {
-    id: "PROGRAM_BASICS",
-    group: "preparation",
-    order: 4,
-    title: "Базовые инструкции программы",
-    shortTitle: "Базовые инструкции",
-    actionRequired: false,
-    severity: "ok",
-    icon: "📘",
-    description: "Базовые материалы и инструкции программы изучены.",
-    detail: {
-      whatsHappening: "Вы получили базовые инструкции: что такое CIEE, как искать работодателя, как устроен Roadmap.",
-      whatRequired: "Ничего — этот шаг уже пройден.",
-      whatsNext: "Активировать аккаунт CIEE после получения Welcome Email.",
+      whatsNext: "Регистрация в CIEE — ABC Universe зарегистрирует вас и пришлёт Welcome Email.",
     },
     cta: null,
   },
@@ -102,87 +59,64 @@ export const STAGES = [
   {
     id: "CIEE_REGISTRATION",
     group: "ciee",
-    order: 5,
+    order: 2,
     title: "Регистрация CIEE",
     shortTitle: "Регистрация CIEE",
     actionRequired: true,
     severity: "danger",
     icon: "📩",
-    description: "Мы зарегистрировали вас в CIEE. Активируйте аккаунт по Welcome Email — на это 5 дней.",
+    description: "Мы зарегистрировали вас в CIEE. Активируйте аккаунт по Welcome Email и заполните анкету — на это 5 дней.",
     detail: {
       whatsHappening: "ABC Universe зарегистрировала вас в системе CIEE. На указанный email отправлено Welcome Email.",
-      whatRequired: "Найдите Welcome Email от CIEE, перейдите по ссылке, используйте данные, указанные ABC Universe, и активируйте аккаунт.",
-      whatsNext: "После активации нужно будет заполнить личный кабинет CIEE согласно инструкции.",
+      whatRequired: "Найдите Welcome Email от CIEE, активируйте аккаунт и заполните анкету, следуя инструкции ABC Universe.",
+      whatsNext: "ABC Universe проверит вашу анкету.",
     },
     cta: { label: "Открыть инструкцию", action: "openInstruction" },
     secondaryCta: { label: "Не пришло письмо?", action: "writeCoordinator" },
     deadlineDays: 5,
   },
   {
-    id: "CIEE_FILLING",
+    id: "CIEE_ANKETA_REVIEW",
     group: "ciee",
-    order: 6,
-    title: "Заполнение CIEE",
-    shortTitle: "Заполнение CIEE",
-    actionRequired: true,
-    severity: "danger",
-    icon: "📝",
-    description: "Заполните обязательные разделы вашего профиля CIEE согласно инструкции ABC Universe.",
-    detail: {
-      whatsHappening: "Аккаунт CIEE активирован. Теперь нужно заполнить обязательные разделы профиля.",
-      whatRequired: "Следуйте инструкции ABC Universe и заполните все обязательные разделы CIEE Account.",
-      whatsNext: "После заполнения профиль автоматически передаётся ABC Universe на проверку.",
-    },
-    cta: { label: "Открыть инструкцию", action: "openInstruction" },
-  },
-  {
-    id: "CIEE_REVIEW",
-    group: "ciee",
-    order: 7,
-    title: "Проверка CIEE",
-    shortTitle: "Проверка CIEE",
+    order: 3,
+    title: "Проверка анкеты CIEE",
+    shortTitle: "Проверка анкеты",
     actionRequired: false,
     severity: "active",
     icon: "🔎",
-    description: "Мы проверяем корректность заполнения вашего CIEE Account. Сейчас от вас ничего не требуется.",
+    description: "Мы проверяем вашу анкету CIEE. Сейчас от вас ничего не требуется.",
     detail: {
-      whatsHappening: "ABC Universe проверяет корректность заполнения вашего личного кабинета CIEE.",
+      whatsHappening: "ABC Universe проверяет данные, которые вы указали при регистрации в CIEE.",
       whatRequired: "Пока ничего.",
-      whatsNext: "Если найдём неточности — попросим их исправить. Если всё в порядке — CIEE Account будет готов.",
+      whatsNext: "После проверки личный кабинет CIEE будет полностью готов.",
     },
     cta: null,
-    changesRequiredVariant: {
-      severity: "warn",
-      title: "Требуются исправления",
-      description: "В вашем CIEE Account необходимо исправить несколько пунктов.",
-      coordinatorComment: "Проверьте раздел Emergency Contact — не указан второй номер телефона.",
-    },
   },
   {
-    id: "CIEE_READY",
+    id: "CIEE_FILLED",
     group: "ciee",
-    order: 8,
-    title: "CIEE Account готов",
+    order: 4,
+    title: "Личный кабинет CIEE заполнен",
     shortTitle: "CIEE готов",
     actionRequired: false,
     severity: "ok",
     icon: "✅",
-    description: "Ваш личный кабинет CIEE проверен ABC Universe.",
+    description: "Ваш личный кабинет CIEE заполнен и проверен ABC Universe.",
     detail: {
-      whatsHappening: "Ваш CIEE Account полностью готов и проверен ABC Universe.",
+      whatsHappening: "Личный кабинет CIEE полностью готов.",
       whatRequired: "Ничего — этот шаг пройден. Теперь самостоятельно найдите работодателя и оформите Job Offer.",
-      whatsNext: "Когда вы получите и оформите Job Offer, загрузите его в CIEE — ABC Universe подключится к процессу с момента его поступления на проверку.",
+      whatsNext: "Когда получите Job Offer, загрузите его — он автоматически уйдёт на проверку.",
     },
     cta: null,
   },
 
   // ----------------------------------------------------------------- JOB OFFER
   {
-    id: "JOB_OFFER_SUBMITTED",
+    id: "JOB_OFFER_UPLOADED",
     group: "job_offer",
-    order: 9,
-    title: "Job Offer получен",
-    shortTitle: "Job Offer получен",
+    order: 5,
+    title: "Job Offer загружен",
+    shortTitle: "Job Offer загружен",
     actionRequired: false,
     severity: "active",
     icon: "📥",
@@ -190,49 +124,33 @@ export const STAGES = [
     detail: {
       whatsHappening: "Ваш Job Offer поступил в ABC Universe.",
       whatRequired: "Пока ничего.",
-      whatsNext: "ABC Universe проверит документ перед передачей Sponsor (CIEE).",
+      whatsNext: "ABC Universe проверит документ перед передачей CIEE (Sponsor).",
     },
     cta: null,
   },
   {
-    id: "ABC_REVIEW",
+    id: "JOB_OFFER_CIEE_REVIEW",
     group: "job_offer",
-    order: 10,
-    title: "ABC Review",
-    shortTitle: "ABC Review",
-    actionRequired: false,
-    severity: "active",
-    icon: "🔵",
-    description: "Мы проверяем ваш Job Offer перед передачей Sponsor. Сейчас от вас ничего не требуется.",
-    detail: {
-      whatsHappening: "ABC Universe проверяет ваш Job Offer перед передачей Sponsor.",
-      whatRequired: "Пока ничего.",
-      whatsNext: "После проверки документ будет передан CIEE (Sponsor Review).",
-    },
-    cta: null,
-  },
-  {
-    id: "SPONSOR_REVIEW",
-    group: "job_offer",
-    order: 11,
-    title: "Sponsor Review",
-    shortTitle: "Sponsor Review",
+    order: 6,
+    title: "Job Offer на проверке CIEE",
+    shortTitle: "Проверка CIEE",
     actionRequired: false,
     severity: "active",
     icon: "🔵",
     description: "Ваш Job Offer проверен ABC Universe и передан CIEE. Sponsor проводит проверку.",
     detail: {
-      whatsHappening: "Sponsor проверяет Job Offer и соответствие требованиям программы.",
+      whatsHappening: "CIEE (Sponsor) проверяет Job Offer и соответствие требованиям программы.",
       whatRequired: "Пока ничего.",
-      whatsNext: "После успешной проверки документ будет направлен работодателю на подтверждение.",
+      whatsNext: "После успешной проверки — Placed 🎉. Если найдутся замечания, координатор свяжется с вами.",
     },
     cta: null,
   },
   {
     id: "JOB_PROBLEM",
     group: "job_offer",
-    order: 11.5,
+    order: 6.5,
     branch: true,
+    branchOf: "JOB_OFFER_CIEE_REVIEW",
     title: "Требуется ваше внимание",
     shortTitle: "Job Problem",
     actionRequired: true,
@@ -240,70 +158,18 @@ export const STAGES = [
     icon: "⚠️",
     description: "По вашему Job Offer появились замечания.",
     detail: {
-      whatsHappening: "Sponsor или ABC Universe обнаружили проблему в вашем Job Offer.",
+      whatsHappening: "CIEE или ABC Universe обнаружили проблему в вашем Job Offer.",
       whatRequired: "Свяжитесь с координатором — он передаст, что именно нужно исправить работодателю.",
-      whatsNext: "После исправления Job Offer вернётся на проверку Sponsor.",
+      whatsNext: "После исправления Job Offer вернётся на проверку CIEE.",
     },
     coordinatorComment: "Работодателю необходимо исправить даты работы.",
     cta: { label: "Написать координатору", action: "writeCoordinator" },
     escalationHours: 48,
   },
   {
-    id: "EMPLOYER_SIGNATURE",
-    group: "job_offer",
-    order: 12,
-    title: "Employer Signature",
-    shortTitle: "Employer Signature",
-    actionRequired: false,
-    severity: "active",
-    icon: "🔵",
-    description: "Job Offer прошёл проверку и отправлен вашему работодателю. Сейчас ожидается подпись работодателя.",
-    detail: {
-      whatsHappening: "Job Offer отправлен работодателю на подпись.",
-      whatRequired: "Обычно ничего — можете при желании напомнить работодателю о подписи.",
-      whatsNext: "После подписи работодателя потребуется ваша подпись.",
-    },
-    cta: null,
-  },
-  {
-    id: "STUDENT_SIGNATURE",
-    group: "job_offer",
-    order: 13,
-    title: "Ваша очередь",
-    shortTitle: "Student Signature",
-    actionRequired: true,
-    severity: "danger",
-    icon: "✍️",
-    description: "Работодатель подписал Job Offer. Теперь необходимо зайти в CIEE и поставить свою подпись.",
-    detail: {
-      whatsHappening: "Работодатель подписал Job Offer.",
-      whatRequired: "Зайдите в CIEE и поставьте свою подпись на Job Offer.",
-      whatsNext: "После вашей подписи Sponsor проведёт Final Check.",
-    },
-    cta: { label: "Открыть CIEE", action: "openCiee" },
-    reminderSchedule: ["сразу", "+24 часа", "+48 часов"],
-  },
-  {
-    id: "FINAL_CHECK",
-    group: "job_offer",
-    order: 14,
-    title: "Final Check",
-    shortTitle: "Final Check",
-    actionRequired: false,
-    severity: "active",
-    icon: "🔵",
-    description: "Все необходимые подписи получены. Sponsor проводит финальную проверку Job Offer.",
-    detail: {
-      whatsHappening: "Sponsor проводит финальную проверку подписанного Job Offer.",
-      whatRequired: "Пока ничего.",
-      whatsNext: "После завершения проверки статус изменится на Placed 🎉",
-    },
-    cta: null,
-  },
-  {
     id: "PLACED",
     group: "job_offer",
-    order: 15,
+    order: 7,
     title: "YOU'RE PLACED!",
     shortTitle: "Placed",
     actionRequired: false,
@@ -321,26 +187,9 @@ export const STAGES = [
 
   // -------------------------------------------------------------------- DS2019
   {
-    id: "DS2019_PROCESSING",
-    group: "ds2019",
-    order: 16,
-    title: "Оформляем DS-2019",
-    shortTitle: "DS-2019 processing",
-    actionRequired: false,
-    severity: "active",
-    icon: "🔵",
-    description: "ABC Universe готовит необходимые документы и передаёт их Sponsor. Сейчас от вас ничего не требуется.",
-    detail: {
-      whatsHappening: "ABC Universe проводит финальную проверку и готовит пакет документов для Sponsor.",
-      whatRequired: "Пока ничего.",
-      whatsNext: "Sponsor оформит вашу форму DS-2019.",
-    },
-    cta: null,
-  },
-  {
     id: "DS2019_ISSUED",
     group: "ds2019",
-    order: 17,
+    order: 8,
     title: "DS-2019 ISSUED",
     shortTitle: "DS-2019 issued",
     actionRequired: false,
@@ -351,33 +200,33 @@ export const STAGES = [
     detail: {
       whatsHappening: "Sponsor выпустил вашу форму DS-2019.",
       whatRequired: "Ничего — этот шаг пройден.",
-      whatsNext: "Начинается визовый этап: Visa Briefing, SEVIS Fee, Visa Fee, DS-160.",
+      whatsNext: "Начинается визовый этап — заполнение формы DS-160.",
     },
     cta: null,
   },
 
   // ---------------------------------------------------------------------- VISA
   {
-    id: "VISA_PREPARATION",
+    id: "DS160_STARTED",
     group: "visa",
-    order: 18,
-    title: "Подготовка к визе",
-    shortTitle: "Visa Preparation",
+    order: 9,
+    title: "DS-160",
+    shortTitle: "DS-160",
     actionRequired: true,
     severity: "danger",
     icon: "🛂",
-    description: "Пройдите Visa Briefing, оплатите SEVIS и Visa Fee, заполните DS-160 согласно инструкции.",
+    description: "Заполните форму DS-160 согласно инструкции ABC Universe.",
     detail: {
       whatsHappening: "Начался визовый этап программы.",
-      whatRequired: "Пройдите Visa Briefing, оплатите обязательные визовые сборы (SEVIS Fee, Visa Fee) и заполните форму DS-160.",
-      whatsNext: "После заполнения DS-160 ABC Universe проверит форму перед подачей.",
+      whatRequired: "Заполните форму DS-160, следуя инструкции ABC Universe.",
+      whatsNext: "После заполнения ABC Universe проверит форму перед подачей.",
     },
     cta: { label: "Открыть инструкцию", action: "openInstruction" },
   },
   {
     id: "DS160_REVIEW",
     group: "visa",
-    order: 19,
+    order: 10,
     title: "DS-160 Review",
     shortTitle: "DS-160 Review",
     actionRequired: false,
@@ -390,17 +239,11 @@ export const STAGES = [
       whatsNext: "После проверки форма будет отправлена (Submitted).",
     },
     cta: null,
-    changesRequiredVariant: {
-      severity: "warn",
-      title: "Требуются исправления DS-160",
-      description: "В форме DS-160 необходимо исправить несколько пунктов.",
-      coordinatorComment: "Проверьте раздел Travel History — не указана предыдущая поездка в США.",
-    },
   },
   {
     id: "DS160_SUBMITTED",
     group: "visa",
-    order: 20,
+    order: 11,
     title: "DS-160 Submitted",
     shortTitle: "DS-160 Submitted",
     actionRequired: false,
@@ -410,49 +253,32 @@ export const STAGES = [
     detail: {
       whatsHappening: "Ваша форма DS-160 успешно подана.",
       whatRequired: "Пока ничего.",
-      whatsNext: "Запись на интервью в посольство/консульство США.",
+      whatsNext: "Запись на интервью в посольство/консульстве США.",
     },
     cta: null,
   },
   {
-    id: "VISA_APPOINTMENT",
+    id: "VISA_FINAL_CALL",
     group: "visa",
-    order: 21,
-    title: "Visa Appointment",
-    shortTitle: "Visa Appointment",
-    actionRequired: false,
-    severity: "warn",
-    icon: "📅",
-    description: "Запись на визовое интервью подтверждена.",
-    detail: {
-      whatsHappening: "Вы записаны на собеседование по визе J-1.",
-      whatRequired: "Начните готовиться к интервью заранее.",
-      whatsNext: "В день интервью — визовое собеседование в посольстве/консульстве США.",
-    },
-    cta: { label: "Подготовиться", action: "openInstruction" },
-    reminderSchedule: ["за 7 дней", "за 3 дня", "за 1 день", "утром в день интервью"],
-  },
-  {
-    id: "VISA_INTERVIEW",
-    group: "visa",
-    order: 22,
-    title: "Visa Interview",
-    shortTitle: "Visa Interview",
+    order: 12,
+    title: "Final Call перед визой",
+    shortTitle: "Final Call",
     actionRequired: true,
     severity: "danger",
-    icon: "🎤",
-    description: "Сегодня ваше визовое интервью. Не забудьте все документы.",
+    icon: "📞",
+    description: "Финальная проверка готовности к визовому интервью — сверьте документы и детали записи.",
     detail: {
-      whatsHappening: "У вас запланировано визовое интервью.",
-      whatRequired: "Явиться на интервью со всеми необходимыми документами.",
-      whatsNext: "После интервью — ожидание решения по визе (Visa Result) и статуса паспорта.",
+      whatsHappening: "Вы записаны на визовое интервью.",
+      whatRequired: "Проверьте дату и время интервью, соберите документы по чек-листу.",
+      whatsNext: "В день интервью — визовое собеседование в посольстве/консульстве США. После — Passport ready и решение по визе.",
     },
     cta: { label: "Чек-лист документов", action: "openInstruction" },
+    reminderSchedule: ["за 7 дней", "за 3 дня", "за 1 день", "утром в день интервью"],
   },
   {
     id: "PASSPORT_READY",
     group: "visa",
-    order: 23,
+    order: 13,
     title: "Ожидаем паспорт",
     shortTitle: "Passport",
     actionRequired: false,
@@ -462,45 +288,31 @@ export const STAGES = [
     detail: {
       whatsHappening: "Ваш паспорт с визой находится на обработке в посольстве/консульстве.",
       whatRequired: "Пока ничего — мы сообщим, когда паспорт будет готов к получению.",
-      whatsNext: "Получение паспорта с визой.",
+      whatsNext: "Получение паспорта с визой — VISA APPROVE.",
     },
     cta: null,
   },
   {
     id: "VISA_APPROVED",
     group: "visa",
-    order: 24,
-    title: "VISA APPROVED",
+    order: 14,
+    title: "VISA APPROVE",
     shortTitle: "Visa Approved",
-    actionRequired: false,
+    actionRequired: true,
     severity: "ok",
     icon: "🇺🇸",
     celebration: true,
-    description: "Ваша J-1 Visa одобрена. Остался последний этап — подготовка к поездке.",
+    description: "Ваша J-1 Visa одобрена! Это последний статус в CRM — дальше пройдите чек-лист подготовки к вылету прямо в приложении.",
     detail: {
-      whatsHappening: "Ваша J-1 Visa одобрена — паспорт получен.",
-      whatRequired: "Ничего — этот шаг пройден.",
-      whatsNext: "Финальный брифинг Pre-Departure и чек-лист подготовки к вылету.",
+      whatsHappening: "Ваша J-1 Visa одобрена — паспорт получен. Это финальный статус сделки в CRM.",
+      whatRequired: "Закройте чек-лист подготовки к вылету ниже.",
+      whatsNext: "Когда все пункты чек-листа закрыты — вы готовы к вылету ✈️",
     },
-    cta: null,
-  },
-
-  // ----------------------------------------------------------- ПЕРЕД ВЫЛЕТОМ
-  {
-    id: "PRE_DEPARTURE",
-    group: "pre_departure",
-    order: 25,
-    title: "Pre-Departure",
-    shortTitle: "Pre-Departure",
-    actionRequired: true,
-    severity: "danger",
-    icon: "🧳",
-    description: "Пройдите финальный брифинг и завершите чек-лист подготовки к вылету.",
-    detail: {
-      whatsHappening: "Начался финальный этап подготовки к поездке.",
-      whatRequired: "Пройдите Pre-Departure Briefing и отметьте пункты чек-листа подготовки.",
-      whatsNext: "Когда все пункты чек-листа закрыты — вы готовы к вылету.",
-    },
+    // No amoCRM status exists after VISA APPROVE (the deal is simply won from
+    // here), so Pre-Departure / Ready-to-fly, previously separate stages
+    // nothing could ever move a deal into, live inside this stage's own
+    // detail screen instead (see statusDetail.js) — checklist progress is
+    // tracked in the PreDepartureChecklist sheet, not by advancing current_stage_id.
     checklist: [
       "Visa",
       "DS-2019",
@@ -512,43 +324,6 @@ export const STAGES = [
       "Pre-Departure Briefing",
     ],
     cta: { label: "Открыть чек-лист", action: "openChecklist" },
-  },
-  {
-    id: "READY_TO_FLY",
-    group: "pre_departure",
-    order: 26,
-    title: "READY TO FLY",
-    shortTitle: "Ready to Fly",
-    actionRequired: false,
-    severity: "ok",
-    icon: "✈️",
-    celebration: true,
-    description: "Все пункты чек-листа закрыты. Вы готовы к вылету в США!",
-    detail: {
-      whatsHappening: "Чек-лист подготовки полностью закрыт.",
-      whatRequired: "Ничего — просто дождитесь дня вылета.",
-      whatsNext: "Вылет и сопровождение после прибытия в США.",
-    },
-    cta: null,
-  },
-
-  // ----------------------------------------------------------------------- USA
-  {
-    id: "USA_ARRIVED",
-    group: "usa",
-    order: 27,
-    title: "USA",
-    shortTitle: "USA",
-    actionRequired: false,
-    severity: "wait",
-    icon: "🗽",
-    description: "Добро пожаловать в США! Сопровождение на месте продолжается.",
-    detail: {
-      whatsHappening: "Вы на месте в США и проходите программу.",
-      whatRequired: "Ничего особенного — при необходимости обращайтесь к координатору.",
-      whatsNext: "Раздел будет расширен в следующей версии приложения (адаптация, поддержка, возвращение).",
-    },
-    cta: null,
   },
 ];
 
@@ -585,9 +360,13 @@ export function stageStatus(stageId, currentStageId) {
 }
 
 function findParentOrder(branchStage) {
-  // JOB_PROBLEM sits at order 11.5 — anchor it to SPONSOR_REVIEW (order 11) for comparisons.
-  const candidates = MAIN_LINE.filter((s) => s.order < branchStage.order);
-  return candidates.length ? candidates[candidates.length - 1].order : 0;
+  // Every branch stage (currently just JOB_PROBLEM) declares branchOf
+  // explicitly — e.g. branchOf: "JOB_OFFER_CIEE_REVIEW" anchors it there for
+  // done/current/upcoming comparisons, instead of inferring the nearest
+  // lower-order stage (which broke the moment a branch's real parent lived
+  // in a different group than the branch stage itself).
+  const parent = getStage(branchStage.branchOf);
+  return parent ? parent.order : 0;
 }
 
 /**
@@ -614,8 +393,7 @@ export function computeProgress(currentStageId) {
 }
 
 function findParentStageId(branchStage) {
-  const candidates = MAIN_LINE.filter((s) => s.order < branchStage.order && s.group === branchStage.group);
-  return candidates.length ? candidates[candidates.length - 1].id : null;
+  return branchStage.branchOf || null;
 }
 
 export function nextStage(stageId) {
