@@ -12,6 +12,17 @@ body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSy
 .content{padding:16px}
 .screen{display:none}
 .screen.active{display:block}
+/* Cheap "loading" feedback for the rare case a screen still has to wait on
+   a network fetch (cache miss) — dims the still-visible previous screen
+   instead of a blank flash, and pops back in the instant new content lands. */
+#screen-root{transition:opacity .15s ease}
+#screen-root[aria-busy="true"]{opacity:.45}
+/* Only used on the very first render, before any screen has painted yet --
+   see router.js. Without this, a slow first fetch (Apps Script cold start)
+   just shows a blank page with nothing dimmed, which reads as broken. */
+.loading-spinner{display:flex;align-items:center;justify-content:center;padding:80px 0}
+.spinner-dot{width:34px;height:34px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--navy);animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 h1{font-size:26px;margin:4px 0 4px}
 h2{font-size:19px;margin:0 0 12px}
 h3{font-size:15px;margin:0 0 8px}
@@ -71,6 +82,79 @@ details.card[open] summary::after{content:"⌃"}
 
 /* Document upload select */
 select#doc-select{width:100%;border:1px solid var(--line);background:#fff}
+
+/* ---------------- Events — Calendly-style booking card ----------------
+   Same visual language as a Calendly booking page (icon + title, a meta
+   list with icon rows, a vertical list of full-width time-slot buttons,
+   a filled "selected" state) but in ABC Universe's own navy/red palette
+   and stacked for the app's narrow single-column width. Used by
+   js/screens/events.js. */
+.evt-card{padding:18px;transition:box-shadow .25s ease,border-color .25s ease}
+.evt-card-highlight{box-shadow:0 0 0 2px var(--navy),0 8px 22px rgba(23,51,94,.06);border-color:var(--navy)}
+.evt-head{display:flex;gap:12px;align-items:flex-start;margin-bottom:14px}
+.evt-icon{width:44px;height:44px;border-radius:13px;background:linear-gradient(135deg,#17335e,#0f2344);color:#fff;display:grid;place-items:center;font-size:19px;flex:0 0 auto;box-shadow:0 6px 14px rgba(15,35,68,.22)}
+.evt-title{font-size:17px;font-weight:800;color:var(--navy);line-height:1.25;margin-bottom:3px}
+.evt-desc{font-size:13px;color:var(--muted);line-height:1.45}
+
+.evt-meta{display:flex;flex-direction:column;gap:9px;padding:13px 0;margin-bottom:14px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.evt-meta-row{display:flex;align-items:center;gap:9px;font-size:13.5px;color:#132033;font-weight:600}
+.evt-meta-ico{width:20px;text-align:center;flex:0 0 auto;color:var(--muted);font-size:14px}
+
+.evt-slots{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+.evt-slot{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;padding:12px 14px;border-radius:13px;border:1.5px solid var(--line);background:#fff;font-family:inherit;font-size:14px;font-weight:700;color:var(--navy);cursor:pointer;transition:border-color .15s ease,background .15s ease,color .15s ease}
+.evt-slot:hover:not(.full){border-color:#9fb2d6;background:#f7f9fd}
+.evt-slot.selected{border-color:var(--navy);background:var(--navy);color:#fff}
+.evt-slot.selected .evt-slot-spots{color:rgba(255,255,255,.75)}
+.evt-slot.full{opacity:.45;cursor:not-allowed;border-style:dashed}
+.evt-slot-date{font-weight:800}
+.evt-slot-spots{font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap}
+
+.evt-hint{font-size:12px;color:var(--muted);margin:-8px 0 14px;text-align:center}
+
+.evt-actions{display:grid;gap:8px}
+
+.evt-done{display:flex;flex-direction:column;align-items:center;text-align:center;padding:6px 4px 2px}
+.evt-done-ico{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;font-size:24px;margin-bottom:12px}
+.evt-done-ico.ok{background:#e8f6ef;color:var(--ok)}
+.evt-done-ico.muted{background:#eef2f8;color:var(--muted)}
+.evt-done-title{font-size:16px;font-weight:800;margin-bottom:4px;color:var(--navy)}
+
+/* Text links under a confirmed/declined summary ("Изменить время" /
+   "Не смогу прийти" / "Всё-таки записаться") -- Calendly shows its own
+   booking-management screen the same way: quiet text links under the
+   confirmation card, not big buttons, since the main decision is already
+   made and these are secondary. */
+.evt-links-row{display:flex;justify-content:center;gap:18px;margin-top:14px}
+.evt-links-row button{background:none;border:0;padding:4px;color:var(--muted);font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit}
+.evt-links-row button:hover{color:var(--navy)}
+.evt-links-row button.danger:hover{color:var(--danger)}
+
+/* ---- month calendar (real Calendly date-then-time picker) ----
+   Calendly always starts a booking with a month calendar: days that have
+   open slots are highlighted and clickable, everything else is dimmed.
+   Picking a date reveals that date's times below; picking a time opens a
+   confirm step (see .evt-back-link / confirmPanelHtml in events.js) instead
+   of booking immediately -- same two-step "pick, then confirm" flow. */
+.cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.cal-nav-btn{border:0;background:#eef2f8;color:var(--navy);width:30px;height:30px;border-radius:9px;cursor:pointer;font-size:15px;display:grid;place-items:center;font-family:inherit}
+.cal-nav-btn:disabled{opacity:.35;cursor:not-allowed}
+.cal-month-label{font-weight:800;font-size:13.5px;color:var(--navy);text-transform:capitalize}
+.cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:4px}
+.cal-weekdays span{text-align:center;font-size:10.5px;font-weight:800;color:var(--muted)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:16px}
+.cal-day{aspect-ratio:1;display:grid;place-items:center;border:0;background:none;border-radius:10px;font-size:13px;font-weight:700;color:#132033;cursor:pointer;position:relative;font-family:inherit;padding:0}
+.cal-day.empty{visibility:hidden;cursor:default}
+.cal-day.disabled{color:#c7d0dd;cursor:not-allowed}
+.cal-day.has-slots{color:var(--navy);background:#eef2f8}
+.cal-day.has-slots:hover{background:#e2e9f5}
+.cal-day.has-slots::after{content:"";position:absolute;bottom:5px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--navy)}
+.cal-day.selected{background:var(--navy);color:#fff}
+.cal-day.selected::after{background:#fff}
+
+.evt-day-label{font-size:12px;font-weight:800;color:var(--navy);margin-bottom:9px}
+
+.evt-back-link{background:none;border:0;color:var(--muted);font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;padding:4px 0;display:inline-block}
+.evt-back-link:hover{color:var(--navy)}
 
 /* ---------------- Demo panel (Phase 1 prototype only) ---------------- */
 .demo-fab{
