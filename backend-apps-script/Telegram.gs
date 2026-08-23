@@ -21,9 +21,11 @@ function telegramApiFetch_(method, payload) {
   }
   if (code >= 300) {
     // Log and swallow — a failed notification shouldn't break the webhook/
-    // reminder flow that triggered it. Callers that want to surface *why*
-    // it failed (e.g. adminCreateEventAndInvite_) can inspect the returned
-    // object's ok/description fields instead of failing silently.
+    // reminder flow that triggered it. ТЗ §77 asks for retry-ability instead
+    // of hard failure; logEvent below leaves a trail for a manual resend.
+    // We still return Telegram's own error body (when present) so callers
+    // that want to surface *why* it failed — e.g. adminCreateEventAndInvite_ —
+    // can do so instead of failing silently.
     Logger.log("Telegram sendMessage failed (%s): %s", code, resp.getContentText());
     return json || { ok: false, description: "HTTP " + code };
   }
