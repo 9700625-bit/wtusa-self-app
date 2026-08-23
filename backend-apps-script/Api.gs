@@ -171,9 +171,6 @@ function stateForUser_(telegramUser) {
     currentStageId: participantRow.current_stage_id || "CONTRACT_SIGNED",
     documents: documents,
     payments: payments,
-    // Fixed reference total (Payment 1 is pure KZT with no $ figure, so it
-    // can't be computed by summing the payments — see Webhooks.gs). Change
-    // the PROGRAM_COST_USD Script Property if the program price changes.
     programCost: Number(CFG_OPTIONAL("PROGRAM_COST_USD", 2850)),
     visaFees: [
       { id: "fee_sevis", label: "SEVIS Fee", amount: 220, status: visaRow.sevis_fee_status || "locked" },
@@ -216,47 +213,64 @@ function ensureParticipantRow_(telegramId, telegramUser) {
     existing.last_activity = new Date();
     return existing;
   }
-  const newRow = {
-    telegram_id: telegramId,
-    name: [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(" "),
-    current_stage_id: "CONTRACT_SIGNED",
-    created_at: new Date(),
-    last_activity: new Date(),
-  };
-  appendRow("Participants", newRow);
-  DEFAULT_DOCUMENT_TYPES.forEach((type, i) => {
-    appendRow("Documents", {
+
+  // Slow path only, deliberately NOT locked above -- this function runs on
+  // every single "state" request (the app's most frequent call), and almost
+  // every one of those hits the `existing` branch above with zero lock
+  // overhead. Only a telegram_id's very first-ever request reaches here, so
+  // this is the one place a lock is worth its cost: without it, two
+  // near-simultaneous first opens from the same brand-new user could both
+  // pass the check above and both create duplicate Participants/Documents/
+  // PreDepartureChecklist rows.
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error("Система сейчас занята — попробуйте ещё раз через несколько секунд.");
+  try {
+    const existingRetry = findRow("Participants", "telegram_id", telegramId);
+    if (existingRetry) {
+      updateRow("Participants", existingRetry._row, { last_activity: new Date() });
+      existingRetry.last_activity = new Date();
+      return existingRetry;
+    }
+
+    const newRow = {
       telegram_id: telegramId,
-      doc_id: "doc_" + (i + 1),
-      type: type,
-      status: "miss",
-      note: "Документ не загружен",
-      coordinator_comment: "",
-      updated_at: "",
+      name: [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(" "),
+      current_stage_id: "CONTRACT_SIGNED",
+      created_at: new Date(),
+      last_activity: new Date(),
+    };
+    appendRow("Participants", newRow);
+    DEFAULT_DOCUMENT_TYPES.forEach((type, i) => {
+      appendRow("Documents", {
+        telegram_id: telegramId,
+        doc_id: "doc_" + (i + 1),
+        type: type,
+        status: "miss",
+        note: "Документ не загружен",
+        coordinator_comment: "",
+        updated_at: "",
+      });
     });
-  });
-  DEFAULT_CHECKLIST_ITEMS.forEach((label, i) => {
-    appendRow("PreDepartureChecklist", {
-      telegram_id: telegramId,
-      item_id: "chk_" + i,
-      label: label,
-      done: "",
+    DEFAULT_CHECKLIST_ITEMS.forEach((label, i) => {
+      appendRow("PreDepartureChecklist", {
+        telegram_id: telegramId,
+        item_id: "chk_" + i,
+        label: label,
+        done: "",
+      });
     });
-  });
-  return newRow;
+    return newRow;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
-// Payment 1 & 2 are fixed amount/currency (see Webhooks.gs FIXED_PAYMENTS_);
-// Payment 3 varies per student, so 0/USD here is just the placeholder shown
-// until amoCRM has synced a real amount for that deal.
 const DEFAULT_PAYMENT_TEMPLATE = [
   { pay_id: "pay_1", label: "Оплата 1", amount: 200000, currency: "KZT" },
   { pay_id: "pay_2", label: "Оплата 2", amount: 450, currency: "USD" },
   { pay_id: "pay_3", label: "Оплата 3", amount: 0, currency: "USD" },
 ];
 
-/** Payments sheet only stores rows once amoCRM/coordinator has set something —
- * fill in sane defaults (amount/currency/label) for any not-yet-synced payment. */
 function mergeWithDefaultPayments_(rows) {
   return DEFAULT_PAYMENT_TEMPLATE.map((tpl) => {
     const row = rows.find((r) => r.pay_id === tpl.pay_id);
@@ -300,11 +314,17 @@ function submitSupport_(telegramUser, message) {
 
 function toggleChecklistItem_(telegramUser, itemId) {
   const telegramId = String(telegramUser.id);
-  const row = findRows("PreDepartureChecklist", "telegram_id", telegramId).find((r) => r.item_id === itemId);
+  // Reuse the one findRows result instead of re-querying after the write --
+  // updateRow() invalidates this sheet's row cache, so a second findRows
+  // call here would force a brand-new live Sheets read for no reason: we
+  // already know the new value locally.
+  const rows = findRows("PreDepartureChecklist", "telegram_id", telegramId);
+  const row = rows.find((r) => r.item_id === itemId);
   if (row) {
-    updateRow("PreDepartureChecklist", row._row, { done: row.done === "yes" ? "" : "yes" });
+    row.done = row.done === "yes" ? "" : "yes";
+    updateRow("PreDepartureChecklist", row._row, { done: row.done });
   }
-  return findRows("PreDepartureChecklist", "telegram_id", telegramId).map((c) => ({
+  return rows.map((c) => ({
     id: c.item_id,
     label: c.label,
     done: c.done === "yes",
