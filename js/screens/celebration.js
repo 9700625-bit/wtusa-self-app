@@ -15,12 +15,7 @@ const CELEBRATION_COPY = {
   VISA_APPROVED: {
     heading: "VISA APPROVED",
     emoji: "🇺🇸",
-    lines: ["Congratulations!", "Ваша J-1 Visa одобрена."],
-  },
-  READY_TO_FLY: {
-    heading: "READY TO FLY",
-    emoji: "✈️",
-    lines: ["Все пункты чек-листа закрыты.", "Вы готовы к вылету в США!"],
+    lines: ["Congratulations!", "Ваша J-1 Visa одобрена — теперь закройте чек-лист подготовки к вылету."],
   },
 };
 

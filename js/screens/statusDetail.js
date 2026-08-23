@@ -35,7 +35,7 @@ export async function render(container, params) {
       </div>`;
   }
 
-  if (stage.id === "VISA_APPOINTMENT" || stage.id === "VISA_INTERVIEW") {
+  if (stage.id === "VISA_FINAL_CALL") {
     const visa = await api.getVisaInfo();
     const days = daysUntil(visa.appointmentDate);
     extraHtml += `
@@ -47,8 +47,15 @@ export async function render(container, params) {
       </div>`;
   }
 
-  if (stage.id === "PRE_DEPARTURE" && stage.checklist) {
+  if (stage.id === "VISA_APPROVED" && stage.checklist) {
+    // amoCRM has no status after VISA APPROVE (the deal is simply won from
+    // here), so there's no separate "Pre-Departure"/"Ready to fly" stage to
+    // advance current_stage_id into — this whole checklist lives inside
+    // VISA_APPROVED's own detail screen instead, and "ready to fly" is
+    // computed client-side from checklist completion rather than being a
+    // distinct backend-driven state.
     const checklist = await api.getPreDepartureChecklist();
+    const allDone = checklist.length > 0 && checklist.every((item) => item.done);
     extraHtml += `
       <div class="card">
         <h3>Чек-лист подготовки</h3>
@@ -61,7 +68,16 @@ export async function render(container, params) {
           </label>`
           )
           .join("")}
-      </div>`;
+      </div>
+      ${
+        allDone
+          ? `<div class="card hero" style="text-align:center;padding:28px 20px">
+               <div style="font-size:44px;line-height:1;margin-bottom:8px">✈️</div>
+               <h2>READY TO FLY</h2>
+               <div class="sub" style="margin-top:4px">Все пункты чек-листа закрыты. Вы готовы к вылету в США!</div>
+             </div>`
+          : ""
+      }`;
   }
 
   if (stage.coordinatorComment) {
