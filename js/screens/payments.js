@@ -12,14 +12,22 @@ function timingText(p) {
 export async function render(container) {
   const { paidTotal, programCost, payments, visaFees, visaFeesUnlocked } = await api.getPayments();
 
-  const paymentsHtml = payments
-    .map((p) => {
-      const currency = p.currency || "USD";
-      const rateNote =
-        currency === "USD"
-          ? `<div class="small" style="margin-top:2px">Оплата в тенге по курсу Нацбанка РК на день оплаты</div>`
-          : "";
-      return `
+  // Was previously left as `` when payments.length === 0, rendering a
+  // visibly empty <div class="card"> — matches the empty-state pattern
+  // already used in events.js instead of showing a blank block.
+  const paymentsHtml = payments.length
+    ? payments
+        .map((p) => {
+          const currency = p.currency || "USD";
+          // Payment 1 is quoted and paid in tenge directly — no conversion
+          // involved. Payments 2/3 are quoted in $ but paid in tenge, so the
+          // exact tenge amount depends on the National Bank of RK's rate on the
+          // day of payment — we don't try to compute it ourselves.
+          const rateNote =
+            currency === "USD"
+              ? `<div class="small" style="margin-top:2px">Оплата в тенге по курсу Нацбанка РК на день оплаты</div>`
+              : "";
+          return `
       <div class="pay">
         <div>
           <b>${p.label}</b>
@@ -28,8 +36,9 @@ export async function render(container) {
         </div>
         ${paymentTagHtml(p.status)}
       </div>`;
-    })
-    .join("");
+        })
+        .join("")
+    : `<div class="sub">График платежей пока не сформирован — появится после оформления сделки.</div>`;
 
   const feesHtml = visaFees
     .map((fee) => {
