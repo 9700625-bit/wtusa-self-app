@@ -45,34 +45,46 @@ function parseHash() {
 }
 
 async function render(force) {
-    if (!containerEl) return;
+  if (!containerEl) return;
 
-    // Dedup: app.js sets window.location.hash itself for deep links (before
-    // this hashchange listener even exists yet), then immediately calls
-    // initRouter() -> render() for that same hash. The browser still queues a
-    // native hashchange for that change and fires it once the listener is
-    // attached, which used to cause every deep-linked open (event_/status_)
-    // to render twice and double-fire that screen's data fetch. Skip a render
-    // that targets the exact hash we just rendered, unless explicitly forced
-    // (navigate() passes force=true for its own same-hash re-render case).
-    const hash = window.location.hash;
-    if (!force && hash === lastRenderedHash) return;
-    lastRenderedHash = hash;
+  // Dedup: app.js sets window.location.hash itself for deep links (before
+  // the hashchange listener below even exists yet), then immediately calls
+  // initRouter() -> render() for that same hash. The browser still queues a
+  // native hashchange for that hash change and fires it once the listener
+  // is attached, which used to cause every deep-linked open (event_/status_)
+  // to render twice and fire its screen's data fetch twice. Skip a render
+  // that targets the exact hash we just rendered, unless explicitly forced
+  // (navigate() uses force=true for its own same-hash re-render case).
+  const hash = window.location.hash;
+  if (!force && hash === lastRenderedHash) return;
+  lastRenderedHash = hash;
 
-    const { name, params } = parseHash();
-    const renderFn = screens.get(name) || screens.get("home");
-    const resolvedName = screens.has(name) ? name : "home";
+  const { name, params } = parseHash();
+  const renderFn = screens.get(name) || screens.get("home");
+  const resolvedName = screens.has(name) ? name : "home";
 
-    // Use the resolved screen name/params, not the raw hash: on a normal
-    // (non-deep-link) Telegram launch the hash still holds Telegram's own
-    // launch payload the first time render() runs, and that must never end up
-    // in historyStack (goBack() would then navigate to it).
-    const currentEntry = resolvedName + (params.length ? "/" + params.join("/") : "");
-    if (historyStack[historyStack.length - 1] !== currentEntry) {
-          historyStack.push(currentEntry);
-    }
+  // Use the resolved screen name/params, not the raw hash — on a normal
+  // (non-deep-link) Telegram launch the hash still holds Telegram's own
+  // launch payload ("tgWebAppData=...") the first time render() runs, and
+  // that garbage string must never end up in historyStack (goBack() would
+  // then navigate to it).
+  const currentEntry = resolvedName + (params.length ? "/" + params.join("/") : "");
+  if (historyStack[historyStack.length - 1] !== currentEntry) {
+    historyStack.push(currentEntry);
+  }
 
   containerEl.setAttribute("aria-busy", "true");
+  // The opacity dim above (see styles.css) only reads as "loading" when
+  // there's a previous screen underneath it to dim -- on the very first
+  // render, containerEl is still empty, so dimming nothing shows the user a
+  // blank page with zero feedback while the first fetch is in flight. That's
+  // exactly the slow case (Google Apps Script cold start, see SETUP.md's
+  // quota note) where feedback matters most. Show a spinner only for that
+  // one case; every later navigation already has a previous screen to dim.
+  const isFirstRender = containerEl.innerHTML.trim() === "";
+  if (isFirstRender) {
+    containerEl.innerHTML = `<div class="loading-spinner" role="status" aria-label="Загрузка"><span class="spinner-dot"></span></div>`;
+  }
   try {
     await renderFn(containerEl, params);
   } catch (err) {
