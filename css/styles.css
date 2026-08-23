@@ -65,9 +65,9 @@ h3{font-size:15px;margin:0 0 8px}
 .tag.need{background:#fff1e0;color:#b97000}
 .tag.miss{background:#fdebec;color:var(--danger)}
 
-.bottom{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:min(460px,100%);display:grid;grid-template-columns:repeat(5,1fr);background:rgba(255,255,255,.96);backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:8px 6px calc(8px + env(safe-area-inset-bottom));z-index:3}
-.nav{border:0;background:transparent;padding:8px 2px;color:#8a96a8;font-size:10px;cursor:pointer;font-family:inherit}
-.nav .ico{display:block;font-size:19px;margin-bottom:3px}
+.bottom{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:min(460px,100%);display:grid;grid-template-columns:repeat(6,1fr);background:rgba(255,255,255,.96);backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:8px 4px calc(8px + env(safe-area-inset-bottom));z-index:3}
+.nav{border:0;background:transparent;padding:8px 1px;color:#8a96a8;font-size:9.5px;cursor:pointer;font-family:inherit}
+.nav .ico{display:block;font-size:18px;margin-bottom:3px}
 .nav.active{color:var(--navy);font-weight:800}
 
 .profile-row{padding:12px 0;border-bottom:1px solid var(--line)}
