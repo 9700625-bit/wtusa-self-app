@@ -1,6 +1,6 @@
 /**
  * Phase-1-only "Demo" panel: lets anyone previewing the prototype jump the
- * mock participant to any pipeline stage (or toggle the Job Problem branch)
+ * mock participant to any pipeline stage (or trigger the Job Problem branch)
  * without a backend, so every screen state described in the ТЗ is reachable
  * and clickable. This has no equivalent in production — once amoCRM drives
  * `currentStageId` for real, this whole panel is deleted.
@@ -27,7 +27,8 @@ export function mountDemoPanel() {
       </div>
       <div class="sub" style="margin-bottom:10px">Только для прототипа: меняет mock-статус участника, как если бы координатор перевёл сделку в amoCRM.</div>
       <div class="demo-groups"></div>
-      <button class="btn secondary" id="demo-job-problem" style="margin-top:10px">⚠️ Смоделировать Job Problem</button>
+      <div class="kicker" style="margin-top:10px">Смоделировать проблему</div>
+      <div class="demo-stage-list" id="demo-branch-list" style="margin-top:6px"></div>
     </div>`;
   document.body.appendChild(overlay);
 
@@ -70,10 +71,21 @@ export function mountDemoPanel() {
     });
   });
 
-  overlay.querySelector("#demo-job-problem").addEventListener("click", async () => {
-    await api._debugSetCurrentStage("JOB_PROBLEM");
-    close();
-    window.location.hash = "status/JOB_PROBLEM";
-    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  // One button per branch stage (currently just JOB_PROBLEM) — generated
+  // from STAGES instead of hardcoded, so a new branch stage shows up here
+  // automatically.
+  const branchListEl = overlay.querySelector("#demo-branch-list");
+  const branchStages = STAGES.filter((s) => s.branch);
+  branchListEl.innerHTML = branchStages
+    .map((s) => `<button class="demo-stage-btn" data-branch-stage="${s.id}">${s.icon || "⚠️"} ${s.shortTitle}</button>`)
+    .join("");
+  branchListEl.querySelectorAll("[data-branch-stage]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const stageId = btn.dataset.branchStage;
+      await api._debugSetCurrentStage(stageId);
+      close();
+      window.location.hash = `status/${stageId}`;
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
   });
 }
