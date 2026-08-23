@@ -43,6 +43,29 @@ export function daysUntil(isoDate) {
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 }
 
+/**
+ * '2026-10-15' + 5 -> '2026-10-20'. Used to turn a stored start date plus a
+ * fixed deadline window (e.g. CIEE's 5-day activation window) into a date
+ * daysUntil() can then count down against.
+ *
+ * Deliberately does NOT go through .toISOString() -- that serializes in UTC,
+ * which can land on a different calendar day than dateOnly_() would parse
+ * back out once the local timezone offset is applied (the exact bug class
+ * this whole codebase has had to fix repeatedly on the backend side with
+ * formatSheetDate_/formatSheetTime_). Building the "YYYY-MM-DD" string from
+ * the local Date getters instead keeps it symmetric with how dateOnly_()
+ * reads it back.
+ */
+export function addDaysIso(isoDate, days) {
+  const base = dateOnly_(isoDate);
+  if (!base) return null;
+  base.setDate(base.getDate() + days);
+  const y = base.getFullYear();
+  const m = String(base.getMonth() + 1).padStart(2, "0");
+  const d = String(base.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export function daysLabel(n) {
   const abs = Math.abs(n);
   const mod10 = abs % 10;
