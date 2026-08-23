@@ -75,11 +75,6 @@ function findInvitationRow_(telegramId, groupId) {
 function respondToEvent_(telegramUser, groupId, choice, chosenEventId) {
   const telegramId = String(telegramUser.id);
 
-  // Same race-condition class fixed in Webhooks.gs: without a lock, two
-  // near-simultaneous "confirm" requests for the last spot on a limited
-  // slot could both pass the capacity check before either writes, causing
-  // overbooking. A script lock keeps this correct at essentially zero cost
-  // (events are invited-only and low-volume, so contention is rare).
   const lock = LockService.getScriptLock();
   const gotLock = lock.tryLock(10000);
   if (!gotLock) throw new Error("Система сейчас занята — попробуйте ещё раз через несколько секунд.");
@@ -136,10 +131,6 @@ function adminCreateEventAndInvite_(payload) {
   const location = String((payload && payload.location) || "").trim();
   const slots = Array.isArray(payload && payload.slots) ? payload.slots : [];
   const telegramIds = Array.isArray(payload && payload.telegramIds) ? payload.telegramIds : [];
-  // Optional: ties this event to a roadmap stage so that marking a
-  // student's invitation attended="yes" lights up a badge on their
-  // Roadmap screen (see attendedRoadmapStageIds_ below). Left blank for
-  // one-off/unplanned briefings that shouldn't touch the app at all.
   const roadmapStageId = String((payload && payload.roadmapStageId) || "").trim();
 
   if (!title) throw new Error("Укажите название мероприятия.");
@@ -158,7 +149,7 @@ function adminCreateEventAndInvite_(payload) {
       time: String(slot.time || ""),
       location: location,
       capacity: slot.capacity ? Number(slot.capacity) : "",
-        roadmap_stage_id: roadmapStageId,
+      roadmap_stage_id: roadmapStageId,
     });
   });
 
@@ -168,7 +159,7 @@ function adminCreateEventAndInvite_(payload) {
   const text =
     "📅 Приглашение: " + title + "\n\nОткройте приложение, чтобы выбрать время и записаться (или отказаться, если не сможете прийти).\n" + link;
 
-let sent = 0;
+  let sent = 0;
   const failures = [];
   telegramIds.forEach((telegramId) => {
     appendRow("EventInvitations", {
@@ -217,7 +208,7 @@ function sendPendingEventInvites() {
   Logger.log("Sent " + pending.length + " invitation(s).");
 }
 
-/** Roadmap stage ids this student should show an "attended" badge for --
+/** Roadmap stage ids this student should show a "Посещено ✓" badge for —
  * i.e. they have an EventInvitations row with attended="yes" whose event
  * was linked to a roadmap stage when the coordinator created it. Ad-hoc
  * events created with no roadmap_stage_id never show up here, by design. */
