@@ -25,8 +25,8 @@ registerScreen("status", statusDetail.render);
 registerScreen("celebration", celebration.render);
 // Deep link: t.me/bot/app?startapp=event_<groupId> -> #event/<groupId> (see
 // handleStartParam below). The screen itself always lists ALL of this
-// student's invitations — the groupId param isn't currently used to filter,
-// it's just what makes the link land on the right screen.
+// student's invitations — the groupId param isn't used to filter, only to
+// scroll to and briefly highlight that one card (see events.js render()).
 registerScreen("event", events.render);
 
 const navEl = document.getElementById("bottom-nav");
@@ -38,37 +38,37 @@ setNavigateListener((screenName) => setActiveNav(navEl, screenName));
 // Deep link support (ТЗ §58/§78): either a one-time account-linking token
 // (?startapp=link_<token>) or a direct jump to a screen (?startapp=status_STUDENT_SIGNATURE).
 async function handleStartParam() {
-    const startParam = getStartParam();
-    if (!startParam) return;
+  const startParam = getStartParam();
+  if (!startParam) return;
 
-    if (startParam.type === "link" && startParam.rest) {
-          try {
-                  await api.linkAccount(startParam.rest);
-          } catch (err) {
-                  console.error("[app] account linking failed:", err);
-          }
-          return;
+  if (startParam.type === "link" && startParam.rest) {
+    try {
+      await api.linkAccount(startParam.rest);
+    } catch (err) {
+      console.error("[app] account linking failed:", err);
     }
+    return;
+  }
 
-    // NOTE: intentionally not checking "!window.location.hash" here.
-        // Inside real Telegram clients the page loads with Telegram's own launch
-        // data already in the hash (e.g. "#tgWebAppData=...&tgWebAppVersion=..."),
-        // so that check was always false there and silently broke every deep
-        // link (both event_ and status_) whenever this was opened for real from
-        // a Telegram message, even though it worked fine in a plain browser tab
-        // where the hash starts empty. Always override with our own route.
-        if (startParam.type && startParam.rest) {
-                    window.location.hash = `${startParam.type}/${startParam.rest}`;
-        }
+  // NOTE: we intentionally do NOT check "!window.location.hash" here.
+  // Inside real Telegram clients the page loads with Telegram's own launch
+  // data already in the hash (e.g. "#tgWebAppData=...&tgWebAppVersion=..."),
+  // so that check was always false there — it silently broke every deep
+  // link (both event_ and status_) the moment this was opened for real
+  // from a Telegram message, even though it worked fine in a plain browser
+  // tab where the hash starts empty. Always override with our own route.
+  if (startParam.type && startParam.rest) {
+    window.location.hash = `${startParam.type}/${startParam.rest}`;
+  }
 }
 
 handleStartParam().finally(() => {
-    initRouter(contentEl);
+  initRouter(contentEl);
 });
 
 // The demo stage-switcher only makes sense on mock data — once a live
 // amoCRM-backed backend is configured, currentStageId is real and this
 // panel is never mounted.
 if (!isLiveBackendConfigured()) {
-    mountDemoPanel();
+  mountDemoPanel();
 }
