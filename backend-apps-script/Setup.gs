@@ -86,6 +86,46 @@ function listAmoCustomFields() {
 }
 
 /**
+ * One-off: creates the 3 SELF custom fields that ТЗ/SETUP.md call for but
+ * were never actually created in amoCRM (Season, Program, CIEE ID), then
+ * writes their numeric ids straight into Script Properties
+ * (FIELD_ID_SEASON / FIELD_ID_PROGRAM / FIELD_ID_CIEE_ID) — no manual
+ * copy-pasting needed. Safe to re-run: skips any field that already exists
+ * (matched by name) and just re-syncs the Script Property to its real id.
+ */
+function createMissingSelfCustomFields() {
+  const existing = amoApiFetch_("/api/v4/leads/custom_fields?limit=250", "get");
+  const fields = ((existing._embedded && existing._embedded.custom_fields) || []).slice();
+  const wanted = [
+    { name: "Season", type: "text", prop: "FIELD_ID_SEASON" },
+    { name: "Program", type: "text", prop: "FIELD_ID_PROGRAM" },
+    { name: "CIEE ID", type: "text", prop: "FIELD_ID_CIEE_ID" },
+  ];
+
+  const toCreate = wanted.filter((w) => !fields.some((f) => f.name === w.name));
+  if (toCreate.length) {
+    const created = amoApiFetch_(
+      "/api/v4/leads/custom_fields",
+      "post",
+      toCreate.map((w) => ({ name: w.name, type: w.type }))
+    );
+    const createdFields = (created._embedded && created._embedded.custom_fields) || [];
+    createdFields.forEach((f) => Logger.log("Created field: " + f.id + "  " + f.name));
+    fields.push.apply(fields, createdFields);
+  }
+
+  wanted.forEach((w) => {
+    const f = fields.find((f2) => f2.name === w.name);
+    if (f) {
+      setProp(w.prop, f.id);
+      Logger.log(w.prop + " = " + f.id + " (" + w.name + ")");
+    } else {
+      Logger.log("WARNING: could not find or create field " + w.name);
+    }
+  });
+}
+
+/**
  * Run AFTER creating the SELF pipeline + its stages in amoCRM. Prints every
  * pipeline's stages with their numeric status_id, so you can build
  * STATUS_ID_MAP_JSON (Script Properties) mapping status_id -> our STAGE_IDS.
