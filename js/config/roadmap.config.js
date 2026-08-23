@@ -253,7 +253,7 @@ export const STAGES = [
     detail: {
       whatsHappening: "Ваша форма DS-160 успешно подана.",
       whatRequired: "Пока ничего.",
-      whatsNext: "Запись на интервью в посольство/консульстве США.",
+      whatsNext: "Запись на интервью в посольство/консульство США.",
     },
     cta: null,
   },
