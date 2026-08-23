@@ -8,11 +8,19 @@
 const SHEET_SCHEMA = {
   Participants: [
     "telegram_id", "amo_deal_id", "amo_contact_id", "name", "full_name",
-    "program", "season", "ciee_id", "coordinator_name", "coordinator_tg",
+    "program", "season", "ciee_id", "coordinator_name", "coordinator_tg", "coordinator_avatar_url",
     "current_stage_id", "ciee_registration_date",
     "ciee_reminder_2d_sent", "ciee_reminder_1d_sent", "ciee_reminder_0d_sent", "ciee_escalated",
     "last_synced_at", "last_activity", "created_at",
   ],
+  // Looked up by Webhooks.gs (coordinatorForUserId_) via amoCRM's numeric
+  // "Ответственный" (responsible_user_id) on every deal sync, to fill in
+  // Participants.coordinator_name/coordinator_tg/coordinator_avatar_url.
+  // One row per coordinator -- fill this in by hand (there's no UI for it):
+  // amo_user_id is the numeric id shown in amoCRM's own user list (Settings
+  // → Users), telegram_username is what the student taps to message them
+  // from the app, avatar_url is optional (leave blank for no photo).
+  Coordinators: ["amo_user_id", "name", "telegram_username", "avatar_url"],
   Documents: ["telegram_id", "doc_id", "type", "status", "note", "coordinator_comment", "updated_at"],
   Payments: [
     "telegram_id", "pay_row_key", "pay_id", "label", "amount", "currency", "deadline", "status", "paid_date",
