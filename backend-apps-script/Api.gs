@@ -45,7 +45,7 @@ function doGet(e) {
     }
 
     if (action === "amoWebhook") {
-      if (e.parameter.secret !== CFG("WEBHOOK_SECRET")) return jsonOutput_({ error: "bad secret" });
+      if (!timingSafeEqual_(e.parameter.secret, CFG("WEBHOOK_SECRET"))) return jsonOutput_({ error: "bad secret" });
       return jsonOutput_(handleAmoWebhook(e.parameter));
     }
 
@@ -60,12 +60,12 @@ function doGet(e) {
     }
 
     if (action === "adminListParticipants") {
-      if (e.parameter.secret !== CFG("ADMIN_SECRET")) return jsonOutput_({ error: "bad secret" });
+      if (!timingSafeEqual_(e.parameter.secret, CFG("ADMIN_SECRET"))) return jsonOutput_({ error: "bad secret" });
       return jsonOutput_(adminListParticipants_());
     }
 
     if (action === "adminCreateLink") {
-      if (e.parameter.secret !== CFG("ADMIN_SECRET")) return jsonOutput_({ error: "bad secret" });
+      if (!timingSafeEqual_(e.parameter.secret, CFG("ADMIN_SECRET"))) return jsonOutput_({ error: "bad secret" });
       const dealId = e.parameter.dealId;
       if (!dealId) return jsonOutput_({ error: "dealId required" });
       const token = createLinkToken(dealId);
@@ -89,7 +89,7 @@ function doPost(e) {
     // in the query string and the payload in the form body (merged into
     // e.parameter by Apps Script automatically).
     if (action === "amoWebhook") {
-      if (e.parameter.secret !== CFG("WEBHOOK_SECRET")) return jsonOutput_({ error: "bad secret" });
+      if (!timingSafeEqual_(e.parameter.secret, CFG("WEBHOOK_SECRET"))) return jsonOutput_({ error: "bad secret" });
       return jsonOutput_(handleAmoWebhook(e.parameter));
     }
 
@@ -97,7 +97,7 @@ function doPost(e) {
     // query string (same pattern as adminCreateLink) instead of a Telegram
     // initData check — this call isn't coming from inside the Mini App.
     if (action === "adminCreateEvent") {
-      if (e.parameter.secret !== CFG("ADMIN_SECRET")) return jsonOutput_({ error: "bad secret" });
+      if (!timingSafeEqual_(e.parameter.secret, CFG("ADMIN_SECRET"))) return jsonOutput_({ error: "bad secret" });
       const body = e.postData && e.postData.contents ? JSON.parse(e.postData.contents) : {};
       return jsonOutput_(adminCreateEventAndInvite_(body));
     }
@@ -137,13 +137,18 @@ function stateForUser_(telegramUser) {
     id: d.doc_id,
     type: d.type,
     status: d.status,
-    updatedAt: d.updated_at || null,
+    updatedAt: d.updated_at ? formatSheetDate_(d.updated_at) : null,
     note: d.note,
     coordinatorComment: d.coordinator_comment || null,
   }));
   const paymentRows = findRows("Payments", "telegram_id", telegramId);
   const payments = mergeWithDefaultPayments_(paymentRows);
-  const briefings = getRows("Briefings").map(stripRowMeta_); // global, not per-participant
+  const briefings = getRows("Briefings").map((b) => {
+    const copy = stripRowMeta_(b);
+    if ("date" in copy) copy.date = formatSheetDate_(copy.date);
+    if ("time" in copy) copy.time = formatSheetTime_(copy.time);
+    return copy;
+  }); // global, not per-participant
   const visaRow = findRow("VisaInfo", "telegram_id", telegramId) || {};
   const checklist = findRows("PreDepartureChecklist", "telegram_id", telegramId).map((c) => ({
     id: c.item_id,
@@ -160,7 +165,20 @@ function stateForUser_(telegramUser) {
       season: participantRow.season || "",
       cieeId: participantRow.ciee_id || "Будет добавлен после интеграции",
       telegramConnected: true,
-      enrollmentDate: participantRow.enrollment_date || "",
+      // "enrollment_date" isn't its own tracked field anywhere in this
+      // backend (no sync path or admin UI ever writes it) -- created_at
+      // (set once, the first time this telegram_id ever opens the app) is
+      // the closest real signal we actually have, so fall back to it
+      // rather than always sending an empty string.
+      enrollmentDate: formatSheetDate_(participantRow.enrollment_date || participantRow.created_at),
+      // Tracked (per participant) purely for Reminders.gs's own 2d/1d/0d CIEE
+      // activation nudges (sendCieeActivationReminders_) -- never previously
+      // sent to the frontend, so statusDetail.js's "Осталось X дней" countdown
+      // was hardcoded to a fake constant (stage.deadlineDays - 1) that never
+      // moved regardless of when registration actually happened. Surfacing
+      // the real date lets deriveStageDetail() compute the same real
+      // countdown client-side (see js/services/deriveViews.js).
+      cieeRegistrationDate: participantRow.ciee_registration_date ? formatSheetDate_(participantRow.ciee_registration_date) : null,
     },
     coordinator: {
       name: participantRow.coordinator_name || CFG_OPTIONAL("DEFAULT_COORDINATOR_NAME", ""),
@@ -171,6 +189,9 @@ function stateForUser_(telegramUser) {
     currentStageId: participantRow.current_stage_id || "CONTRACT_SIGNED",
     documents: documents,
     payments: payments,
+    // Fixed reference total (Payment 1 is pure KZT with no $ figure, so it
+    // can't be computed by summing the payments — see Webhooks.gs). Change
+    // the PROGRAM_COST_USD Script Property if the program price changes.
     programCost: Number(CFG_OPTIONAL("PROGRAM_COST_USD", 2850)),
     visaFees: [
       { id: "fee_sevis", label: "SEVIS Fee", amount: 220, status: visaRow.sevis_fee_status || "locked" },
@@ -178,8 +199,8 @@ function stateForUser_(telegramUser) {
     ],
     briefings: briefings,
     visaInfo: {
-      appointmentDate: visaRow.appointment_date || null,
-      appointmentTime: visaRow.appointment_time || null,
+      appointmentDate: visaRow.appointment_date ? formatSheetDate_(visaRow.appointment_date) : null,
+      appointmentTime: visaRow.appointment_time ? formatSheetTime_(visaRow.appointment_time) : null,
       location: visaRow.location || null,
       result: visaRow.result || "pending",
       passportStatus: visaRow.passport_status || "waiting",
@@ -265,12 +286,17 @@ function ensureParticipantRow_(telegramId, telegramUser) {
   }
 }
 
+// Payment 1 & 2 are fixed amount/currency (see Webhooks.gs FIXED_PAYMENTS_);
+// Payment 3 varies per student, so 0/USD here is just the placeholder shown
+// until amoCRM has synced a real amount for that deal.
 const DEFAULT_PAYMENT_TEMPLATE = [
   { pay_id: "pay_1", label: "Оплата 1", amount: 200000, currency: "KZT" },
   { pay_id: "pay_2", label: "Оплата 2", amount: 450, currency: "USD" },
   { pay_id: "pay_3", label: "Оплата 3", amount: 0, currency: "USD" },
 ];
 
+/** Payments sheet only stores rows once amoCRM/coordinator has set something —
+ * fill in sane defaults (amount/currency/label) for any not-yet-synced payment. */
 function mergeWithDefaultPayments_(rows) {
   return DEFAULT_PAYMENT_TEMPLATE.map((tpl) => {
     const row = rows.find((r) => r.pay_id === tpl.pay_id);
@@ -279,9 +305,9 @@ function mergeWithDefaultPayments_(rows) {
       label: tpl.label,
       amount: (row && Number(row.amount)) || tpl.amount,
       currency: (row && row.currency) || tpl.currency,
-      deadline: (row && row.deadline) || null,
+      deadline: row && row.deadline ? formatSheetDate_(row.deadline) : null,
       status: (row && row.status) || "not_due",
-      paidDate: (row && row.paid_date) || null,
+      paidDate: row && row.paid_date ? formatSheetDate_(row.paid_date) : null,
     };
   });
 }
