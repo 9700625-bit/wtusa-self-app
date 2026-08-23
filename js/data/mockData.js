@@ -27,7 +27,7 @@ export const coordinator = {
 
 // Mutable "current stage" — simulates the amoCRM pipeline stage. Changed only
 // by the demo panel (js/screens/demo.js) to preview every state without a backend.
-export let currentStageId = "SPONSOR_REVIEW";
+export let currentStageId = "JOB_OFFER_CIEE_REVIEW";
 
 export function setCurrentStageId(id) {
   currentStageId = id;
@@ -81,31 +81,37 @@ export function setDocumentStatus(docId, status) {
 export const payments = [
   {
     id: "pay_1",
-    label: "Payment #1",
-    amount: 500,
+    label: "Оплата 1",
+    amount: 200000,
+    currency: "KZT",
     deadline: "2026-08-20",
     status: "paid", // not_due | awaiting | paid | overdue
     paidDate: "2026-08-20",
   },
   {
     id: "pay_2",
-    label: "Payment #2",
-    amount: 850,
+    label: "Оплата 2",
+    amount: 450,
+    currency: "USD",
     deadline: "2026-10-15",
     status: "awaiting",
     paidDate: null,
   },
   {
     id: "pay_3",
-    label: "Payment #3",
+    label: "Оплата 3",
     amount: 1500,
+    currency: "USD",
     deadline: "2026-11-15",
     status: "not_due",
     paidDate: null,
   },
 ];
 
-export const programCost = payments.reduce((sum, p) => sum + p.amount, 0);
+// Fixed reference total (Payment 1 is pure KZT with no $ figure, so it can't
+// be summed with the USD-denominated payments) — matches PROGRAM_COST_USD
+// on the live backend.
+export const programCost = 2850;
 
 export const visaFees = [
   { id: "fee_sevis", label: "SEVIS Fee", amount: 220, status: "locked" }, // locked | unpaid | paid
