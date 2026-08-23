@@ -22,6 +22,20 @@
  *      tracking step, no code involved.
  */
 
+/** Google Sheets silently turns a plain "14:30" string into a real time
+ * value once it's written to a cell -- Apps Script then reads that back as
+ * a Date anchored to the Sheets time epoch (1899-12-30), which the API
+ * would otherwise send to the frontend as a garbled
+ * "1899-12-30T09:30:00.000Z" instead of a real time. Format any Date value
+ * explicitly (same GMT+5 zone used elsewhere in this file/Api.gs); leave an
+ * already-plain string untouched. */
+function formatEventTime_(value) {
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, "GMT+5", "HH:mm");
+  }
+  return String(value || "");
+}
+
 /** All of a student's invitations, each with its available time slot(s) and
  * their current response — this is what the app's Events screen renders. */
 function getEventsForUser_(telegramId) {
@@ -40,7 +54,7 @@ function getEventsForUser_(telegramId) {
           title: e.title,
           description: e.description,
           date: e.date,
-          time: e.time,
+          time: formatEventTime_(e.time),
           location: e.location,
           spotsLeft: eventSpotsLeft_(e.id, Number(e.capacity) || null),
         }));
@@ -138,6 +152,7 @@ function adminCreateEventAndInvite_(payload) {
   if (!telegramIds.length) throw new Error("Выберите хотя бы одного студента.");
 
   const groupId = "evt_" + Utilities.getUuid().slice(0, 8);
+  const normalizedTitle = title.toLowerCase();
 
   slots.forEach((slot, i) => {
     appendRow("Events", {
@@ -161,24 +176,39 @@ function adminCreateEventAndInvite_(payload) {
 
   let sent = 0;
   const failures = [];
+  const skipped = [];
   telegramIds.forEach((telegramId) => {
+    const idStr = String(telegramId);
+    if (alreadyInvitedToTitle_(idStr, normalizedTitle)) {
+      skipped.push(idStr);
+      return;
+    }
     appendRow("EventInvitations", {
-      telegram_id: String(telegramId),
+      telegram_id: idStr,
       group_id: groupId,
       status: "invited",
       invited_at: new Date(),
       notified: "yes",
     });
-    const result = sendTelegramMessage(String(telegramId), text);
+    const result = sendTelegramMessage(idStr, text);
     if (result && result.ok === false) {
-      failures.push({ telegramId: String(telegramId), error: result.description || "unknown Telegram error" });
+      failures.push({ telegramId: idStr, error: result.description || "unknown Telegram error" });
     } else {
       sent++;
     }
-    logEvent(String(telegramId), "coordinator", "event_invite_sent", "", groupId);
+    logEvent(idStr, "coordinator", "event_invite_sent", "", groupId);
   });
 
-  return { groupId: groupId, sent: sent, failures: failures };
+  return { groupId: groupId, sent: sent, failures: failures, skipped: skipped };
+}
+
+/** True if telegramId already has an EventInvitations row (any status) for
+ * an event whose title matches (case-insensitive) -- see the guard note
+ * above. */
+function alreadyInvitedToTitle_(telegramId, normalizedTitle) {
+  const myGroupIds = new Set(findRows("EventInvitations", "telegram_id", telegramId).map((r) => r.group_id));
+  if (!myGroupIds.size) return false;
+  return getRows("Events").some((e) => myGroupIds.has(e.group_id) && String(e.title || "").trim().toLowerCase() === normalizedTitle);
 }
 
 /** Coordinator runs this manually (see workflow note at the top of this
