@@ -6,9 +6,14 @@ export async function render(container) {
   const [documents, me] = await Promise.all([api.getDocuments(), api.getMe()]);
   const coordinatorUsername = me.coordinator && me.coordinator.telegramUsername;
 
-  const rowsHtml = documents
-    .map(
-      (doc) => `
+  // Was previously left as `` when documents.length === 0, rendering a
+  // visibly empty <div class="card"> with no content or explanation --
+  // reads as a broken/blank screen rather than "nothing here yet". Match
+  // the empty-state pattern already used in events.js.
+  const rowsHtml = documents.length
+    ? documents
+        .map(
+          (doc) => `
       <div class="doc">
         <div>
           <b>${doc.type}</b>
@@ -17,8 +22,9 @@ export async function render(container) {
         </div>
         ${docTagHtml(doc.status)}
       </div>`
-    )
-    .join("");
+        )
+        .join("")
+    : `<div class="sub">Список документов пока пуст — он появится, как только координатор его настроит.</div>`;
 
   container.innerHTML = `
     <section class="screen active">
