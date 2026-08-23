@@ -31,7 +31,7 @@ import { daysUntil, addDaysIso } from "../utils/format.js?v=2";
 // currentStageId that doesn't match any known stage (e.g. a stale/unmapped
 // amoCRM status) — better to show something than to hard-crash the screen.
 function safeCurrentStage_(currentStageId) {
-  return getStage(currentStageId) || getStage("CONTRACT_SIGNED");
+  return getStage(currentStageId) || getStage("ENROLLED");
 }
 
 export function deriveActionCard(state) {

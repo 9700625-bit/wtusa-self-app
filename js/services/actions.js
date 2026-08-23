@@ -42,7 +42,7 @@ export async function runCtaAction(action, meta = {}) {
     case "openChecklist":
       // In-app navigation (e.g. Pre-Departure checklist lives on its own
       // Status Detail screen, not an external link).
-      window.location.hash = `status/${meta.stageId || "PRE_DEPARTURE"}`;
+      window.location.hash = `status/${meta.stageId || "VISA_APPROVED"}`;
       break;
     default:
       console.warn("[actions] unknown CTA action:", action);
