@@ -110,6 +110,7 @@ export async function render(container, params = []) {
     <section class="screen active">
       <button class="btn secondary" id="back-btn" style="width:auto;padding:8px 14px;margin-bottom:12px">← Назад</button>
       <h1 style="font-size:20px;margin:4px 0 12px">Мероприятия</h1>
+            ${attendanceSummaryHtml(events)}
       <div id="events-list">${events.map(cardWrapperHtml).join("")}</div>
     </section>`;
 
@@ -216,6 +217,35 @@ async function doDecline(container, groupId, btnEl) {
 
 function rerenderCard(cardEl, ev) {
   cardEl.innerHTML = cardInnerHtml(ev);
+}
+
+/** Small stat line under the "Мероприятия" title: how many of this
+ * student's PAST invitations (attended already recorded yes/no by a
+  * coordinator, see Events.gs step 4) they actually showed up to, plus how
+   * many are still ahead. Only events with attended !== null count as
+    * "past" -- an event that already happened but hasn't been marked yet is
+     * left out of both numbers rather than silently counted as a miss. */
+function attendanceSummaryHtml(events) {
+    const past = events.filter((e) => e.attended !== null);
+    if (!past.length) return "";
+    const attended = past.filter((e) => e.attended === true).length;
+    const upcoming = events.length - past.length;
+    return `
+        <div class="card" style="padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+              <div>
+                      <div class="sub" style="margin-bottom:2px">Посещено мероприятий</div>
+                              <div class="metric" style="font-size:22px">${attended} <span style="font-size:14px;font-weight:600;color:var(--muted)">из ${past.length}</span></div>
+                                    </div>
+                                          ${upcoming ? `<div class="sub" style="text-align:right">${upcoming} ещё ${upcomingLabel_(upcoming)}<br/>впереди</div>` : ""}
+                                              </div>`;
+}
+
+function upcomingLabel_(n) {
+    const mod10 = n % 10;
+    const mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return "мероприятие";
+    if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) return "мероприятия";
+    return "мероприятий";
 }
 
 function cardWrapperHtml(ev) {
