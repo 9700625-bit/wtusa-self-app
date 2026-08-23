@@ -25,7 +25,7 @@ import {
   nextStage,
   GROUPS,
 } from "../config/roadmap.config.js";
-import { daysUntil } from "../utils/format.js?v=2";
+import { daysUntil, addDaysIso } from "../utils/format.js?v=2";
 
 // Falls back to the very first stage if the backend ever sends a
 // currentStageId that doesn't match any known stage (e.g. a stale/unmapped
@@ -72,26 +72,49 @@ export function deriveDashboard(state) {
 }
 
 export function deriveRoadmap(state) {
-    // Separate from status (done/current/upcoming, driven by amoCRM's
-    // currentStageId): a stage can independently show "attended" once a
-    // coordinator marks attended=yes on a linked event (see Events.gs
-    // attendedRoadmapStageIds_) -- it never moves the participant's actual
-    // pipeline position, just adds a small badge on top.
-    const attendedSet = new Set(state.attendedRoadmapStageIds || []);
-    const groups = GROUPS.map((g) => ({
-          ...g,
-          stages: getStagesByGroup(g.id).map((s) => ({
-                  ...s,
-                  status: stageStatus(s.id, state.currentStageId),
-                  attended: attendedSet.has(s.id),
-          })),
-    }));
-    return { currentStageId: state.currentStageId, progress: computeProgress(state.currentStageId), groups };
+  // Separate from status (done/current/upcoming, driven by amoCRM's
+  // currentStageId): a stage can independently show "attended" once a
+  // coordinator marks attended=yes on a linked event (see Events.gs
+  // attendedRoadmapStageIds_) — it never moves the participant's actual
+  // pipeline position, just adds a small badge on top.
+  const attendedSet = new Set(state.attendedRoadmapStageIds || []);
+  const groups = GROUPS.map((g) => ({
+    ...g,
+    stages: getStagesByGroup(g.id).map((s) => ({
+      ...s,
+      status: stageStatus(s.id, state.currentStageId),
+      attended: attendedSet.has(s.id),
+    })),
+  }));
+  return { currentStageId: state.currentStageId, progress: computeProgress(state.currentStageId), groups };
 }
 
 export function deriveStageDetail(state, stageId) {
-  const stage = getStage(stageId);
-  if (!stage) return null;
+  const rawStage = getStage(stageId);
+  if (!rawStage) return null;
+
+  // getStage() returns the actual shared object living in roadmap.config.js's
+  // STAGE_BY_ID map, not a copy -- mutating it directly (e.g. bolting a
+  // per-participant field onto it below) would leak into every other
+  // stage/user that reads the same module-level singleton afterwards. Always
+  // work on a shallow copy here instead.
+  const stage = { ...rawStage };
+
+  // CIEE_REGISTRATION's "Осталось X дней" used to be `stage.deadlineDays - 1`
+  // -- a hardcoded constant that never actually counted down against a real
+  // registration date (the backend tracks ciee_registration_date per
+  // participant purely for its own reminder scheduling; it was never sent to
+  // the frontend until now, see Api.gs's stateForUser_). Compute the real
+  // remaining days the same way Reminders.gs does server-side (deadline =
+  // registration date + stage.deadlineDays) whenever we actually have a
+  // registration date; statusDetail.js falls back to the old placeholder
+  // math when cieeDaysRemaining is null (e.g. on mock data, or before the
+  // participant's registration date is known).
+  if (stageId === "CIEE_REGISTRATION" && stage.deadlineDays && state.participant && state.participant.cieeRegistrationDate) {
+    const deadlineIso = addDaysIso(state.participant.cieeRegistrationDate, stage.deadlineDays);
+    stage.cieeDaysRemaining = daysUntil(deadlineIso);
+  }
+
   return {
     stage,
     status: stageStatus(stageId, state.currentStageId),
