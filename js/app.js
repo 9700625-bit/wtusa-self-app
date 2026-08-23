@@ -36,7 +36,7 @@ renderNav(navEl);
 setNavigateListener((screenName) => setActiveNav(navEl, screenName));
 
 // Deep link support (ТЗ §58/§78): either a one-time account-linking token
-// (?startapp=link_<token>) or a direct jump to a screen (?startapp=status_STUDENT_SIGNATURE).
+// (?startapp=link_<token>) or a direct jump to a screen (?startapp=status_PLACED).
 async function handleStartParam() {
   const startParam = getStartParam();
   if (!startParam) return;

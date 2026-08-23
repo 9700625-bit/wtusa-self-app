@@ -3,8 +3,8 @@
  * app is served over HTTP (see README for why file:// won't work with ES
  * modules) and supports deep links, e.g. opening the Mini App straight into
  * a specific status screen from a Telegram notification (ТЗ §78):
- *   https://t.me/your_bot/app?startapp=status-STUDENT_SIGNATURE
- * maps to #status/STUDENT_SIGNATURE.
+ *   https://t.me/your_bot/app?startapp=status-PLACED
+ * maps to #status/PLACED.
  */
 
 const screens = new Map(); // name -> async (container, params) => void
