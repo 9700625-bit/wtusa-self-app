@@ -20,12 +20,18 @@ export async function render(container, params) {
   let extraHtml = "";
 
   if (stage.id === "CIEE_REGISTRATION" && stage.deadlineDays) {
-    // Registration date is mocked as "today - 1 day" so the countdown reads naturally.
-    const remaining = stage.deadlineDays - 1;
+    // stage.cieeDaysRemaining is the real count from deriveStageDetail() once
+    // the backend knows this participant's actual registration date (see
+    // Api.gs/deriveViews.js). Without it (mock data, or before that date is
+    // known yet) fall back to the old "just show the full window" placeholder
+    // rather than a countdown that looks live but never moves.
+    const hasReal = stage.cieeDaysRemaining != null;
+    const remaining = hasReal ? stage.cieeDaysRemaining : stage.deadlineDays;
+    const overdue = hasReal && remaining < 0;
     extraHtml += `
       <div class="card">
         <h3>Срок активации</h3>
-        <div class="row"><div class="sub">Осталось</div><div class="metric">${daysLabel(Math.max(remaining, 0))}</div></div>
+        <div class="row"><div class="sub">${overdue ? "Просрочено" : "Осталось"}</div><div class="metric">${daysLabel(Math.abs(remaining))}</div></div>
       </div>`;
   }
 
@@ -107,11 +113,12 @@ export async function render(container, params) {
   });
   container.querySelectorAll("[data-checklist]").forEach((input) => {
     input.addEventListener("change", async () => {
-            // Lock the checkbox for the duration of the request -- without this,
-            // toggling it twice quickly races two overlapping toggleChecklistItem
-            // calls and can leave the checked state flipped the wrong number of
-            // times.
-            input.disabled = true;
+      // Lock the checkbox for the duration of the request -- without this,
+      // toggling it twice quickly (or a keyboard user holding Enter/Space)
+      // fires two overlapping toggleChecklistItem calls that race each
+      // other and can leave the checked state flipped the wrong number of
+      // times.
+      input.disabled = true;
       await api.toggleChecklistItem(input.dataset.checklist);
       render(container, params);
     });
