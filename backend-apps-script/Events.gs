@@ -136,11 +136,13 @@ function adminCreateEventAndInvite_(payload) {
   const location = String((payload && payload.location) || "").trim();
   const slots = Array.isArray(payload && payload.slots) ? payload.slots : [];
   const telegramIds = Array.isArray(payload && payload.telegramIds) ? payload.telegramIds : [];
-  // Optional: ties this event to a roadmap stage (e.g. "BRIEFING_WELCOME") so
+  // Optional: ties this event to a roadmap stage (e.g. "CIEE_REGISTRATION") so
   // that marking a student's invitation attended=yes in EventInvitations
   // lights up a "Посещено ✓" badge on that stage in their Roadmap screen —
-  // see attendedRoadmapStageIds_ below. Left blank for one-off/unplanned
-  // briefings that shouldn't touch the app at all.
+  // see attendedRoadmapStageIds_ below. Most briefings should leave this
+  // blank (they run in parallel with the roadmap, tracked only in "Мои
+  // мероприятия" — see js/screens/events.js) — reserve it for the rare
+  // briefing that should visually gate a roadmap milestone.
   const roadmapStageId = String((payload && payload.roadmapStageId) || "").trim();
 
   if (!title) throw new Error("Укажите название мероприятия.");

@@ -138,8 +138,59 @@ function listAmoPipelineStatuses() {
     const statuses = (p._embedded && p._embedded.statuses) || [];
     statuses.forEach((s) => Logger.log("   status_id=" + s.id + "  " + s.name));
   });
-  Logger.log('Now build STATUS_ID_MAP_JSON like: {"12345678":"SPONSOR_REVIEW", "23456789":"ABC_REVIEW", ...} ' +
-    "using the status_id values above, and save it as a Script Property (see Config.gs).");
+  Logger.log('Now build STATUS_ID_MAP_JSON like: {"78553950":"ENROLLED", "79035314":"CIEE_REGISTRATION", ...} ' +
+    "using the status_id values above (pipeline \"Сопровождение self\"), and save it as a Script Property (see Config.gs).");
+}
+
+/**
+ * One-off: wires STATUS_ID_MAP_JSON + AMO_PIPELINE_ID Script Properties
+ * directly from the real "Сопровождение self" pipeline (id=9881242), pulled
+ * via listAmoPipelineStatuses() on 2026-08-23 — no manual copy-pasting of
+ * status_ids needed. Mirrors createMissingSelfCustomFields()'s approach.
+ *
+ * AMO_PIPELINE_ID matters beyond convenience: without it, syncDealToSheets
+ * (Webhooks.gs) processes deal changes from EVERY amoCRM pipeline, including
+ * ones (Отказники, Отказ в визе, Сопровождение full, ...) that share the
+ * same default won/lost status_id (142/143) with this one — a deal moving
+ * in an unrelated pipeline could otherwise appear to change this
+ * participant's SELF stage. Scoping to this one pipeline's id closes that.
+ *
+ * Every key here matches an `id` in js/config/roadmap.config.js exactly —
+ * re-run listAmoPipelineStatuses() and update both files together if the
+ * amoCRM board ever changes.
+ */
+function wireUpSelfPipelineMapping() {
+  const map = {
+    "78553950": "ENROLLED",
+    "79035314": "CIEE_REGISTRATION",
+    "87245618": "CIEE_ANKETA_REVIEW",
+    "78615418": "CIEE_FILLED",
+    "78615422": "JOB_OFFER_UPLOADED",
+    "78615426": "JOB_OFFER_CIEE_REVIEW",
+    "83521190": "JOB_PROBLEM",
+    "78615430": "PLACED",
+    "78615438": "DS2019_ISSUED",
+    "78615442": "DS160_STARTED",
+    "87247222": "DS160_REVIEW",
+    "87247350": "DS160_SUBMITTED",
+    "83069410": "VISA_FINAL_CALL",
+    "83233450": "PASSPORT_READY",
+    "83238730": "VISA_APPROVED",
+    // Intentionally NOT mapped:
+    //   78553946 "Неразобранное", 86090494 "2027 перенос" — housekeeping
+    //     statuses with no participant-facing equivalent.
+    //   87246442 "Офер долго на проверке" — an internal coordinator note,
+    //     not shown to the participant (only "Job problem" is).
+    //   142/143 (won/lost) — shared by every pipeline in this account, so a
+    //     single global entry here would misfire for deals in OTHER
+    //     pipelines too; leaving them unmapped means the app just keeps
+    //     showing the last real stage (VISA_APPROVED) once a deal is won,
+    //     which is what we want anyway (see VISA_APPROVED's own checklist).
+  };
+  setProp("STATUS_ID_MAP_JSON", JSON.stringify(map));
+  setProp("AMO_PIPELINE_ID", "9881242");
+  Logger.log("STATUS_ID_MAP_JSON set with " + Object.keys(map).length + " entries.");
+  Logger.log("AMO_PIPELINE_ID set to 9881242 (Сопровождение self).");
 }
 
 /** Seeds a couple of global Briefings rows so the Home/Briefings UI isn't empty on day one. */

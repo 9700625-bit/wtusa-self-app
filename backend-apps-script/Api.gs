@@ -186,7 +186,7 @@ function stateForUser_(telegramUser) {
       telegramUsername: participantRow.coordinator_tg || CFG_OPTIONAL("DEFAULT_COORDINATOR_TG", ""),
       avatarUrl: participantRow.coordinator_avatar_url || "",
     },
-    currentStageId: participantRow.current_stage_id || "CONTRACT_SIGNED",
+    currentStageId: participantRow.current_stage_id || "ENROLLED",
     documents: documents,
     payments: payments,
     // Fixed reference total (Payment 1 is pure KZT with no $ figure, so it
@@ -256,7 +256,7 @@ function ensureParticipantRow_(telegramId, telegramUser) {
     const newRow = {
       telegram_id: telegramId,
       name: [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(" "),
-      current_stage_id: "CONTRACT_SIGNED",
+      current_stage_id: "ENROLLED",
       created_at: new Date(),
       last_activity: new Date(),
     };

@@ -56,16 +56,12 @@ function setProp(key, value) {
  * needs to say WHICH of these the participant is currently on.
  */
 const STAGE_IDS = [
-  "CONTRACT_SIGNED", "INITIAL_SETUP",
-  "BRIEFING_WELCOME", "PROGRAM_BASICS",
-  "CIEE_REGISTRATION", "CIEE_FILLING", "CIEE_REVIEW", "CIEE_READY",
-  "JOB_OFFER_SUBMITTED", "ABC_REVIEW", "SPONSOR_REVIEW", "JOB_PROBLEM",
-  "EMPLOYER_SIGNATURE", "STUDENT_SIGNATURE", "FINAL_CHECK", "PLACED",
-  "DS2019_PROCESSING", "DS2019_ISSUED",
-  "VISA_PREPARATION", "DS160_REVIEW", "DS160_SUBMITTED", "VISA_APPOINTMENT",
-  "VISA_INTERVIEW", "PASSPORT_READY", "VISA_APPROVED",
-  "PRE_DEPARTURE", "READY_TO_FLY",
-  "USA_ARRIVED",
+  "ENROLLED",
+  "CIEE_REGISTRATION", "CIEE_ANKETA_REVIEW", "CIEE_FILLED",
+  "JOB_OFFER_UPLOADED", "JOB_OFFER_CIEE_REVIEW", "JOB_PROBLEM", "PLACED",
+  "DS2019_ISSUED",
+  "DS160_STARTED", "DS160_REVIEW", "DS160_SUBMITTED", "VISA_FINAL_CALL",
+  "PASSPORT_READY", "VISA_APPROVED",
 ];
 
 /**
@@ -73,7 +69,8 @@ const STAGE_IDS = [
  * listAmoPipelineStatuses() in Setup.gs) → our STAGE_IDS string.
  * Fill this in once your SELF pipeline exists in amoCRM. Kept as a Script
  * Property (JSON string) so it can be edited without redeploying code:
- * Script Properties → STATUS_ID_MAP_JSON → {"12345678":"SPONSOR_REVIEW", ...}
+ * Script Properties → STATUS_ID_MAP_JSON → {"78553950":"ENROLLED", ...} (see
+ * wireUpSelfPipelineMapping() in Setup.gs, which sets this automatically).
  */
 function getStatusIdMap() {
   const raw = CFG_OPTIONAL("STATUS_ID_MAP_JSON", "{}");
@@ -89,15 +86,11 @@ function stageIdForAmoStatus(statusId) {
  * Mini App itself (roadmap.config.js) has the full rich copy. Extend freely. */
 const STAGE_NOTIFY_TEXT = {
   CIEE_REGISTRATION: "📩 Вы были зарегистрированы на портале вашего спонсора CIEE, на почту вам отправлено Welcome Letter — у вас есть 5 дней на регистрацию. Ссылка на инструкцию в приложении.",
-  CIEE_READY: "✅ Ваш CIEE Account проверен и готов.",
-  SPONSOR_REVIEW: "🔵 Job Offer передан на проверку Sponsor.",
+  CIEE_FILLED: "✅ Ваш личный кабинет CIEE проверен и готов — можно искать работодателя.",
+  JOB_OFFER_CIEE_REVIEW: "🔵 Job Offer передан на проверку CIEE (Sponsor).",
   JOB_PROBLEM: "⚠️ По вашему Job Offer появились замечания. Откройте приложение.",
-  STUDENT_SIGNATURE: "✍️ Работодатель подписал Job Offer — теперь нужна ваша подпись в CIEE.",
   PLACED: "🇺🇸 YOU'RE PLACED! Один из главных этапов программы завершён.",
-  DS2019_PROCESSING: "🔵 ABC Universe готовит документы для DS-2019.",
   DS2019_ISSUED: "🇺🇸 Ваша DS-2019 выпущена — начинается визовый этап.",
-  VISA_APPOINTMENT: "📅 Вы записаны на визовое интервью.",
-  VISA_APPROVED: "🇺🇸 Congratulations! Ваша J-1 Visa одобрена.",
-  PRE_DEPARTURE: "🧳 Начался финальный этап подготовки к вылету.",
-  READY_TO_FLY: "✈️ Вы готовы к вылету!",
+  VISA_FINAL_CALL: "📞 Вы записаны на визовое интервью — финальная проверка готовности в приложении.",
+  VISA_APPROVED: "🇺🇸 Congratulations! Ваша J-1 Visa одобрена — откройте приложение и закройте чек-лист подготовки к вылету.",
 };
