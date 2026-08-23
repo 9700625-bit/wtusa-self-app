@@ -22,20 +22,6 @@
  *      tracking step, no code involved.
  */
 
-/** Google Sheets silently turns a plain "14:30" string into a real time
- * value once it's written to a cell -- Apps Script then reads that back as
- * a Date anchored to the Sheets time epoch (1899-12-30), which the API
- * would otherwise send to the frontend as a garbled
- * "1899-12-30T09:30:00.000Z" instead of a real time. Format any Date value
- * explicitly (same GMT+5 zone used elsewhere in this file/Api.gs); leave an
- * already-plain string untouched. */
-function formatEventTime_(value) {
-  if (value instanceof Date) {
-    return Utilities.formatDate(value, "GMT+5", "HH:mm");
-  }
-  return String(value || "");
-}
-
 /** All of a student's invitations, each with its available time slot(s) and
  * their current response — this is what the app's Events screen renders. */
 function getEventsForUser_(telegramId) {
@@ -53,8 +39,8 @@ function getEventsForUser_(telegramId) {
           id: e.id,
           title: e.title,
           description: e.description,
-          date: e.date,
-          time: formatEventTime_(e.time),
+          date: formatSheetDate_(e.date),
+          time: formatSheetTime_(e.time),
           location: e.location,
           spotsLeft: eventSpotsLeft_(e.id, Number(e.capacity) || null),
         }));
@@ -89,6 +75,11 @@ function findInvitationRow_(telegramId, groupId) {
 function respondToEvent_(telegramUser, groupId, choice, chosenEventId) {
   const telegramId = String(telegramUser.id);
 
+  // Same race-condition class fixed in Webhooks.gs: without a lock, two
+  // near-simultaneous "confirm" requests for the last spot on a limited
+  // slot could both pass the capacity check before either writes, causing
+  // overbooking. A script lock keeps this correct at essentially zero cost
+  // (events are invited-only and low-volume, so contention is rare).
   const lock = LockService.getScriptLock();
   const gotLock = lock.tryLock(10000);
   if (!gotLock) throw new Error("Система сейчас занята — попробуйте ещё раз через несколько секунд.");
@@ -145,6 +136,11 @@ function adminCreateEventAndInvite_(payload) {
   const location = String((payload && payload.location) || "").trim();
   const slots = Array.isArray(payload && payload.slots) ? payload.slots : [];
   const telegramIds = Array.isArray(payload && payload.telegramIds) ? payload.telegramIds : [];
+  // Optional: ties this event to a roadmap stage (e.g. "BRIEFING_WELCOME") so
+  // that marking a student's invitation attended=yes in EventInvitations
+  // lights up a "Посещено ✓" badge on that stage in their Roadmap screen —
+  // see attendedRoadmapStageIds_ below. Left blank for one-off/unplanned
+  // briefings that shouldn't touch the app at all.
   const roadmapStageId = String((payload && payload.roadmapStageId) || "").trim();
 
   if (!title) throw new Error("Укажите название мероприятия.");
@@ -176,6 +172,17 @@ function adminCreateEventAndInvite_(payload) {
 
   let sent = 0;
   const failures = [];
+  // Guards against the coordinator re-running this form for the SAME
+  // briefing (e.g. once per time slot instead of adding every slot with
+  // "+ Добавить время" and submitting once) -- without this, a second
+  // submission with the same title silently creates a second, independent
+  // invitation for anyone already invited, which the student then sees as
+  // a confusing extra "briefing" card they could separately confirm/decline
+  // (and could in theory book two different times for what's really one
+  // event). Someone who already has ANY invitation (any status) for a
+  // same-titled event is skipped here instead -- to add more time options
+  // to that existing invitation, add a new row to the Events sheet tab
+  // reusing that event's existing group_id, not a new form submission.
   const skipped = [];
   telegramIds.forEach((telegramId) => {
     const idStr = String(telegramId);
@@ -192,6 +199,10 @@ function adminCreateEventAndInvite_(payload) {
     });
     const result = sendTelegramMessage(idStr, text);
     if (result && result.ok === false) {
+      // Row is still created (student will see the invite next time they
+      // open the app) — but the coordinator should know Telegram delivery
+      // itself failed, and why (e.g. "bot was blocked by the user" or
+      // "chat not found" means this telegram_id never started the bot).
       failures.push({ telegramId: idStr, error: result.description || "unknown Telegram error" });
     } else {
       sent++;
