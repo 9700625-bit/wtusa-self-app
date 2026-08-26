@@ -1,6 +1,7 @@
 import * as api from "../services/api.js";
 import { formatDate } from "../utils/format.js?v=2";
 import { goBack } from "../router.js";
+import { BRIEFING_ROSTER } from "../config/briefingRoster.config.js";
 
 /**
  * A real Calendly-style booking flow, not just Calendly-looking cards:
@@ -89,11 +90,27 @@ function isSummaryView(ev, state) {
   return false;
 }
 
+/**
+ * Splits the raw invitation list into the fixed roster (one slot per
+ * BRIEFING_ROSTER entry, null where the student has no invitation with that
+ * briefingKey yet -- rendered as a dimmed placeholder) and everything else
+ * (ad-hoc briefings: no briefingKey, or a key that's since dropped out of
+ * the roster config). Matching is by key only, never by title text -- see
+ * briefingRoster.config.js and Events.gs (adminCreateEventAndInvite_).
+ */
+function splitRosterAndExtra_(events) {
+  const byKey = new Map(events.filter((e) => e.briefingKey).map((e) => [e.briefingKey, e]));
+  const rosterKeys = new Set(BRIEFING_ROSTER.map((r) => r.key));
+  const rosterEvents = BRIEFING_ROSTER.map((r) => byKey.get(r.key) || null);
+  const extraEvents = events.filter((e) => !e.briefingKey || !rosterKeys.has(e.briefingKey));
+  return { rosterEvents, extraEvents };
+}
+
 export async function render(container, params = []) {
   const events = await api.getEvents();
   cardState.clear();
 
-  if (!events.length) {
+  if (!events.length && !BRIEFING_ROSTER.length) {
     container.innerHTML = `
       <section class="screen active">
         <button class="btn secondary" id="back-btn" style="width:auto;padding:8px 14px;margin-bottom:12px">← Назад</button>
@@ -106,12 +123,18 @@ export async function render(container, params = []) {
     return;
   }
 
+  const { rosterEvents, extraEvents } = splitRosterAndExtra_(events);
+  const rosterHtml = BRIEFING_ROSTER.map((item, i) => (rosterEvents[i] ? cardWrapperHtml(rosterEvents[i]) : rosterPlaceholderHtml(item))).join("");
+  const extraHtml = extraEvents.length
+    ? `<h2 style="font-size:16px;margin:18px 0 10px">Дополнительные мероприятия</h2>${extraEvents.map(cardWrapperHtml).join("")}`
+    : "";
+
   container.innerHTML = `
     <section class="screen active">
       <button class="btn secondary" id="back-btn" style="width:auto;padding:8px 14px;margin-bottom:12px">← Назад</button>
       <h1 style="font-size:20px;margin:4px 0 12px">Мероприятия</h1>
-            ${attendanceSummaryHtml(events)}
-      <div id="events-list">${events.map(cardWrapperHtml).join("")}</div>
+            ${attendanceSummaryHtml(rosterEvents, extraEvents)}
+      <div id="events-list">${rosterHtml}${extraHtml}</div>
     </section>`;
 
   container.querySelector("#back-btn").addEventListener("click", goBack);
@@ -219,33 +242,43 @@ function rerenderCard(cardEl, ev) {
   cardEl.innerHTML = cardInnerHtml(ev);
 }
 
-/** Small stat line under the "Мероприятия" title: how many of this
- * student's PAST invitations (attended already recorded yes/no by a
-  * coordinator, see Events.gs step 4) they actually showed up to, plus how
-   * many are still ahead. Only events with attended !== null count as
-    * "past" -- an event that already happened but hasn't been marked yet is
-     * left out of both numbers rather than silently counted as a miss. */
-function attendanceSummaryHtml(events) {
-    const past = events.filter((e) => e.attended !== null);
-    if (!past.length) return "";
-    const attended = past.filter((e) => e.attended === true).length;
-    const upcoming = events.length - past.length;
+/** Small stat line under the "Мероприятия" title: how many of the fixed
+ * roster's mandatory briefings this student has actually attended (attended
+ * already recorded yes/no by a coordinator, see Events.gs step 4), out of
+ * the full roster size -- a null/not-yet-invited roster slot just doesn't
+ * count toward either the numerator or denominator's "attended" state, it's
+ * simply not reached yet. Ad-hoc briefings (outside the roster) are folded
+ * into a small "+N доп." note instead of the headline number, since they're
+ * optional and shouldn't make mandatory progress look better or worse than
+ * it is. */
+function attendanceSummaryHtml(rosterEvents, extraEvents) {
+    const rosterTotal = BRIEFING_ROSTER.length;
+    const rosterAttended = rosterEvents.filter((e) => e && e.attended === true).length;
+    const extraPast = extraEvents.filter((e) => e.attended !== null);
+    const extraAttended = extraPast.filter((e) => e.attended === true).length;
+    if (!rosterTotal && !extraPast.length) return "";
+    const extraNote = extraPast.length ? ` <span style="font-size:13px;font-weight:600;color:var(--muted)">· +${extraAttended}/${extraPast.length} доп.</span>` : "";
     return `
-        <div class="card" style="padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px">
-              <div>
-                      <div class="sub" style="margin-bottom:2px">Посещено мероприятий</div>
-                              <div class="metric" style="font-size:22px">${attended} <span style="font-size:14px;font-weight:600;color:var(--muted)">из ${past.length}</span></div>
-                                    </div>
-                                          ${upcoming ? `<div class="sub" style="text-align:right">${upcoming} ещё ${upcomingLabel_(upcoming)}<br/>впереди</div>` : ""}
-                                              </div>`;
+        <div class="card" style="padding:14px 16px;margin-bottom:14px">
+              <div class="sub" style="margin-bottom:2px">Посещено обязательных брифингов</div>
+              <div class="metric" style="font-size:22px">${rosterAttended} <span style="font-size:14px;font-weight:600;color:var(--muted)">из ${rosterTotal}</span>${extraNote}</div>
+        </div>`;
 }
 
-function upcomingLabel_(n) {
-    const mod10 = n % 10;
-    const mod100 = n % 100;
-    if (mod10 === 1 && mod100 !== 11) return "мероприятие";
-    if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) return "мероприятия";
-    return "мероприятий";
+/** Dimmed, non-interactive stand-in for a roster briefing the coordinator
+ * hasn't invited this student to yet -- no groupId/data-group, so the click
+ * delegation in render() simply ignores it (nothing to click). */
+function rosterPlaceholderHtml(item) {
+  return `
+    <div class="card" style="opacity:.55">
+      <div class="evt-head">
+        <div class="evt-icon">📅</div>
+        <div>
+          <div class="evt-title">${item.title}</div>
+          <div class="evt-desc">Ожидается — координатор пришлёт приглашение, когда подойдёт время.</div>
+        </div>
+      </div>
+    </div>`;
 }
 
 function cardWrapperHtml(ev) {
