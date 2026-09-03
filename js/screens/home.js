@@ -5,7 +5,7 @@ import { stageRoute } from "../utils/navigation.js";
 
 export async function render(container) {
   const [dashboard] = await Promise.all([api.getDashboard()]);
-  const { participant, currentStage, progress, action, nearestPayment, nearestBriefing } = dashboard;
+  const { currentStage, progress, action, nearestPayment, nearestBriefing } = dashboard;
 
   const actionBlockHtml = action.actionRequired
     ? `
@@ -43,7 +43,7 @@ export async function render(container) {
         nearestPayment
           ? `<div class="status">
               <span class="dot ${paymentDot}"></span>
-              <div><b>${nearestPayment.label}</b>
+              <div><b>${esc(nearestPayment.label)}</b>
                 <div class="sub">${paymentWhen} · ${formatMoney(nearestPayment.amount, nearestPayment.currency)}${
                   paymentDays !== null
         ? paymentDays < 0
@@ -63,8 +63,8 @@ export async function render(container) {
         nearestBriefing
           ? `<div class="status">
               <span class="dot ${nearestBriefing.date ? "active" : "wait"}"></span>
-              <div><b>${nearestBriefing.title}</b>
-                <div class="sub">${nearestBriefing.date ? formatDate(nearestBriefing.date) + (nearestBriefing.time ? " · " + nearestBriefing.time : "") : "Дата появится позже"}</div>
+              <div><b>${esc(nearestBriefing.title)}</b>
+                <div class="sub">${nearestBriefing.date ? formatDate(nearestBriefing.date) + (nearestBriefing.time ? " · " + esc(nearestBriefing.time) : "") : "Дата появится позже"}</div>
               </div>
             </div>`
           : ""
@@ -75,7 +75,16 @@ export async function render(container) {
   container.innerHTML = `
     <section class="screen active">
       <div class="card hero">
-        <div class="sub">Добрый день, ${esc(participant.name)} 👋</div>
+        <!-- БЕЗ ИМЕНИ (03.09.2026). Здесь было «Добрый день, ${name}», где
+             name — это Participants.name, куда webhook кладёт НАЗВАНИЕ СДЕЛКИ
+             amoCRM (см. syncParticipantFromDeal_ в Webhooks.gs). Названия
+             сделок у нас служебные, так что приложение здоровалось со
+             студентом строкой вроде «SELF 2027 / Алматы / заявка 412».
+             Настоящее ФИО лежит в отдельном поле full_name, но оно
+             заполнено не у всех и в приветствии выглядит казённо. Пока в
+             amoCRM нет отдельного поля «имя для обращения» — здороваемся
+             без имени: это лучше, чем обратиться неправильно. -->
+        <div class="sub">Добрый день 👋</div>
         <h1>Моя программа</h1>
         <div class="row">
           <div>

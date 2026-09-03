@@ -97,13 +97,11 @@ export async function render(container, params) {
       </div>`;
   }
 
-  if (stage.reminderSchedule) {
-    extraHtml += `
-      <div class="card">
-        <h3>Напоминания в Telegram</h3>
-        <div class="sub">${stage.reminderSchedule.join(" · ")}</div>
-      </div>`;
-  }
+  // Карточка «Напоминания в Telegram» была здесь и обещала рассылку, которой
+  // не существует (см. комментарий у VISA_FINAL_CALL в roadmap.config.js).
+  // Удалена вместе с полем reminderSchedule 03.09.2026. Если рассылку
+  // когда-нибудь напишут в Reminders.gs и повесят time-driven триггер —
+  // вернуть можно обе части, но только вместе.
 
   const ctaHtml = stage.cta
     ? `<button class="btn" data-cta="${stage.cta.action}">${stage.cta.label}</button>`
