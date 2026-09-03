@@ -18,7 +18,17 @@ function dateOnly_(isoDate) {
 /** '2026-10-15' -> '15 октября' (year appended only if different from today's year) */
 export function formatDate(isoDate, opts = {}) {
   const d = dateOnly_(isoDate);
-  if (!d) return isoDate || null;
+  // ПУСТАЯ ДАТА -> ПУСТАЯ СТРОКА, НЕ null (03.09.2026).
+  //
+  // Раньше здесь стояло `isoDate || null`, и на отсутствующей дате функция
+  // возвращала null. В шаблонной строке null печатается СЛОВОМ, поэтому на
+  // экране «Оплата» у каждого нового участника было три строки подряд
+  // «Оплата 1 · до null · 200 000 ₸» — платежи приходят из amoCRM, и пока
+  // вебхук не сработал, mergeWithDefaultPayments_ отдаёт deadline: null.
+  //
+  // Непарсящаяся, но непустая строка по-прежнему возвращается как есть —
+  // лучше показать сырое значение, чем потерять его.
+  if (!d) return isoDate || "";
   const day = d.getDate();
   const month = RU_MONTHS[d.getMonth()];
   const now = new Date();
