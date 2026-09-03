@@ -176,6 +176,24 @@ Manage deployments → ✎ → New version), иначе Telegram/amoCRM прод
    `https://t.me/<bot_username>/<app_name>?startapp=link_<токен>`.
    Участник откроет её в Telegram → Mini App сам вызовет линковку — сделка
    свяжется с его Telegram ID автоматически.
+4. **Отправка ссылки в WhatsApp одним кликом (admin.html, §5.4)**: координаторы
+   уже общаются с клиентами через WhatsApp прямо внутри amoCRM (imBox,
+   виджет Wazzup24) — поэтому кнопка «Отправить в WhatsApp» в admin.html
+   не открывает отдельный WhatsApp Web, а шлёт сообщение через тот же канал
+   Wazzup, что и обычная переписка. Настройка:
+   - В Wazzup24: раздел «Каналы» → убедитесь, что WhatsApp-канал уже
+     подключён (если нет — подключите его первым).
+   - Там же: «Интеграция с CRM» → API → Add — создастся API-ключ; он же потом
+     виден в «Интеграция с CRM» → вкладка «More».
+   - В Apps Script → Script Properties добавьте `WAZZUP_API_KEY` с этим
+     ключом.
+   - В Apps Script выполните функцию `listWazzupChannels()` (файл
+     `Wazzup.gs`) → откройте Журнал выполнения/Executions → найдите в
+     выведенном списке канал с `"transport": "whatsapp"` → скопируйте его
+     `channelId` → добавьте Script Property `WAZZUP_CHANNEL_ID` с этим
+     значением.
+   - Больше ничего менять не нужно — `BACKEND_URL` тот же, что и для
+     остального Mini App.
 
 ### Проверка
 - Откройте Mini App у тестового аккаунта — должен создаться пустой

