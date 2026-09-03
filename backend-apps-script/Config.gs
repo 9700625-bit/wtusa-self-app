@@ -57,11 +57,11 @@ function setProp(key, value) {
  */
 const STAGE_IDS = [
   "ENROLLED",
-  "CIEE_REGISTRATION", "CIEE_ANKETA_REVIEW", "CIEE_FILLED",
+  "CIEE_REGISTRATION", "CIEE_FILLED", "CIEE_ANKETA_REVIEW",
   "JOB_OFFER_UPLOADED", "JOB_OFFER_CIEE_REVIEW", "JOB_PROBLEM", "PLACED",
   "DS2019_ISSUED",
-  "DS160_STARTED", "DS160_REVIEW", "DS160_SUBMITTED", "VISA_FINAL_CALL",
-  "PASSPORT_READY", "VISA_APPROVED",
+  "DS160_STARTED", "DS160_REVIEW", "DS160_SUBMITTED",
+  "VISA_FINAL_CALL", "PASSPORT_READY", "VISA_APPROVED",
 ];
 
 /**
@@ -69,7 +69,7 @@ const STAGE_IDS = [
  * listAmoPipelineStatuses() in Setup.gs) → our STAGE_IDS string.
  * Fill this in once your SELF pipeline exists in amoCRM. Kept as a Script
  * Property (JSON string) so it can be edited without redeploying code:
- * Script Properties → STATUS_ID_MAP_JSON → {"78553950":"ENROLLED", ...} (see
+ * Script Properties → STATUS_ID_MAP_JSON → {"12345678":"JOB_OFFER_CIEE_REVIEW", ...}
  * wireUpSelfPipelineMapping() in Setup.gs, which sets this automatically).
  */
 function getStatusIdMap() {
@@ -82,22 +82,42 @@ function stageIdForAmoStatus(statusId) {
   return map[String(statusId)] || null;
 }
 
-/** Short Telegram notification text per stage — deliberately terse; the
- * Mini App itself (roadmap.config.js) has the full rich copy. Extend freely. */
+/**
+ * Short Telegram notification text per stage — deliberately terse; the
+ * Mini App itself (roadmap.config.js) has the full rich copy.
+ *
+ * ТОН (03.09.2026). Переписаны в сухом служебном тоне: восклицаний и
+ * англоязычного пафоса («YOU'RE PLACED!», «Congratulations!») больше нет —
+ * это транзакционные уведомления о смене статуса, а не поздравительные
+ * открытки. Структура у всех одинаковая: жирный заголовок «что произошло»,
+ * пустая строка, одна строка «что делать». sendTelegramMessage шлёт их с
+ * parse_mode: "HTML", поэтому <b> здесь намеренный и безопасный: эти строки
+ * статические, через escapeTgHtml_ они НЕ проходят (он только для значений,
+ * пришедших от людей — заголовков мероприятий, названий платежей).
+ *
+ * ⚠️ оставлен ровно на двух сообщениях, где от участника нужно действие
+ * (JOB_PROBLEM и VISA_FINAL_CALL), чтобы они не терялись в ленте чата.
+ *
+ * Обещаний по визе здесь нет и быть не должно: PASSPORT_READY говорит
+ * «решение принято», не называя какое.
+ */
 const STAGE_NOTIFY_TEXT = {
-  ENROLLED: "📄 Добро пожаловать в программу Work & Travel USA SELF! Договор подписан, Payment #1 принят — вы официально участник. Откройте приложение, чтобы посмотреть свой роадмап.",
-  CIEE_REGISTRATION: "📩 Вы были зарегистрированы на портале вашего спонсора CIEE, на почту вам отправлено Welcome Letter — у вас есть 5 дней на регистрацию. Ссылка на инструкцию в приложении.",
-  CIEE_ANKETA_REVIEW: "🔎 Мы получили вашу анкету CIEE и начали проверку. Сейчас от вас ничего не требуется.",
-  CIEE_FILLED: "✅ Ваш личный кабинет CIEE проверен и готов. Теперь самостоятельно найдите работодателя — как получите Job Offer, загрузите его в приложении.",
-  JOB_OFFER_UPLOADED: "📥 Мы получили ваш Job Offer — ABC Universe начинает проверку документа.",
-  JOB_OFFER_CIEE_REVIEW: "🔵 Ваш Job Offer проверен ABC Universe и передан на проверку CIEE (Sponsor).",
-  JOB_PROBLEM: "⚠️ По вашему Job Offer появились замечания. Откройте приложение.",
-  PLACED: "🇺🇸 YOU'RE PLACED! Один из главных этапов программы завершён.",
-  DS2019_ISSUED: "🇺🇸 Ваша DS-2019 выпущена — начинается визовый этап.",
-  DS160_STARTED: "🛂 Начался визовый этап — заполните форму DS-160 согласно инструкции в приложении.",
-  DS160_REVIEW: "🔵 Мы проверяем заполненную вами форму DS-160 перед подачей.",
-  DS160_SUBMITTED: "🔵 Форма DS-160 подана. Теперь можно записываться на визовое интервью.",
-  VISA_FINAL_CALL: "📞 Final Call перед визой — проверьте дату и время интервью и соберите документы по чек-листу в приложении.",
-  PASSPORT_READY: "📕 Решение по визе принято, паспорт находится на обработке в посольстве/консульстве. Сообщим, когда будет готов к получению.",
-  VISA_APPROVED: "🇺🇸 Congratulations! Ваша J-1 Visa одобрена. Откройте приложение и пройдите чек-лист подготовки к вылету.",
+  // Про оплату здесь намеренно ни слова: приветственное сообщение не место
+  // для денег. Отдельное уведомление о принятом платеже — в бэклоге, см.
+  // CLAUDE.md; напоминания о СРОКАХ оплаты уже шлёт Reminders.gs.
+  ENROLLED: "<b>Вы в программе</b>\n\nДоговор подписан. В приложении — ваш путь по этапам и список документов.",
+  CIEE_REGISTRATION: "<b>Регистрация в CIEE</b>\n\nМы зарегистрировали вас у спонсора CIEE. На почту пришло Welcome Email — активируйте аккаунт и заполните анкету в течение 5 дней. Инструкция в приложении.",
+  CIEE_FILLED: "<b>Личный кабинет CIEE заполнен</b>\n\nАнкета заполнена, дальше её проверит ABC Universe. Ждать проверки не нужно — начинайте искать работодателя. Когда получите Job Offer, загрузите его в приложении.",
+  CIEE_ANKETA_REVIEW: "<b>Анкета CIEE на проверке</b>\n\nПроверяем данные из анкеты. По ней от вас ничего не требуется — продолжайте искать работодателя.",
+  JOB_OFFER_UPLOADED: "<b>Job Offer получен</b>\n\nABC Universe начал проверку документа. Сейчас от вас ничего не требуется.",
+  JOB_OFFER_CIEE_REVIEW: "<b>Job Offer передан в CIEE</b>\n\nABC Universe проверил документ и передал его спонсору. Проверку проводит CIEE.",
+  JOB_PROBLEM: "⚠️ <b>Нужно ваше внимание</b>\n\nПо вашему Job Offer появились замечания. Откройте приложение — там детали и что нужно сделать.",
+  PLACED: "<b>Job Offer подтверждён</b>\n\nCIEE подтвердил ваш Job Offer. Дальше — выпуск формы DS-2019.",
+  DS2019_ISSUED: "<b>DS-2019 выпущена</b>\n\nНачинается визовый этап. Следующий шаг — форма DS-160.",
+  DS160_STARTED: "<b>Заполните DS-160</b>\n\nЗаполните форму по инструкции ABC Universe — она в приложении.",
+  DS160_REVIEW: "<b>DS-160 на проверке</b>\n\nПроверяем форму перед подачей. Сейчас от вас ничего не требуется.",
+  DS160_SUBMITTED: "<b>DS-160 подана</b>\n\nТеперь можно записываться на визовое интервью.",
+  VISA_FINAL_CALL: "⚠️ <b>Final Call перед интервью</b>\n\nСверьте дату и время записи и соберите документы по чек-листу в приложении.",
+  PASSPORT_READY: "<b>Паспорт в посольстве</b>\n\nРешение по визе принято, паспорт на обработке. Сообщим, когда его можно будет забрать.",
+  VISA_APPROVED: "<b>Виза J-1 одобрена</b>\n\nОткройте приложение и пройдите чек-лист подготовки к вылету.",
 };
