@@ -92,7 +92,31 @@ async function handleStartParam() {
 
 handleStartParam().finally(() => {
   initRouter(contentEl);
+  подставитьСезонВШапку();
 });
+
+// СЕЗОН В ШАПКЕ ИЗ ДАННЫХ (03.09.2026). В index.html плашка была
+// захардкожена как «SELF 2027» — участник следующего сезона видел бы чужой
+// год на каждом экране. Запрос состояния здесь бесплатный: getState()
+// кеширует ответ и склеивает параллельные вызовы, так что это тот же самый
+// запрос, который делает первый экран.
+//
+// Намеренно fire-and-forget и с полным подавлением ошибок: шапка не должна
+// ни задерживать отрисовку, ни ломаться, когда состояние недоступно —
+// например у неприглашённого пользователя (NOT_INVITED) или офлайн. В этих
+// случаях в плашке просто остаётся текст из разметки.
+async function подставитьСезонВШапку() {
+  const плашка = document.getElementById("brand-season");
+  if (!плашка) return;
+  try {
+    const { participant } = await api.getMe();
+    const program = (participant && participant.program) || "";
+    const season = (participant && participant.season) || "";
+    if (program && season) плашка.textContent = `${program} ${season}`;
+  } catch (err) {
+    // намеренно тихо — см. комментарий выше
+  }
+}
 
 // The demo stage-switcher only makes sense on mock data — once a live
 // amoCRM-backed backend is configured, currentStageId is real and this
