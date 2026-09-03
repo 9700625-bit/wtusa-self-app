@@ -1,6 +1,6 @@
 import * as api from "../services/api.js";
 import { runCtaAction } from "../services/actions.js";
-import { formatDate, formatMoney, daysUntil, daysLabel } from "../utils/format.js?v=2";
+import { formatDate, formatMoney, daysUntil, daysLabel, esc } from "../utils/format.js?v=2";
 import { stageRoute } from "../utils/navigation.js";
 
 export async function render(container) {
@@ -34,7 +34,15 @@ export async function render(container) {
               <span class="dot ${paymentDot}"></span>
               <div><b>${nearestPayment.label}</b>
                 <div class="sub">до ${formatDate(nearestPayment.deadline)} · ${formatMoney(nearestPayment.amount, nearestPayment.currency)}${
-                  paymentDays !== null ? ` · осталось ${daysLabel(paymentDays)}` : ""
+                  paymentDays !== null
+        ? paymentDays < 0
+          // Просроченный платёж на главной подписывался «осталось N дней» —
+          // daysLabel берёт модуль числа, а знак никто не разбирал. Экран
+          // «Оплата» тот же платёж честно называл просроченным, и два экрана
+          // противоречили друг другу; верил студент главному (02.09.2026).
+          ? ` · просрочено на ${daysLabel(paymentDays)}`
+          : ` · осталось ${daysLabel(paymentDays)}`
+        : ""
                 }</div>
               </div>
             </div>`
@@ -56,7 +64,7 @@ export async function render(container) {
   container.innerHTML = `
     <section class="screen active">
       <div class="card hero">
-        <div class="sub">Добрый день, ${participant.name} 👋</div>
+        <div class="sub">Добрый день, ${esc(participant.name)} 👋</div>
         <h1>Моя программа</h1>
         <div class="row">
           <div>

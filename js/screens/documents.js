@@ -1,5 +1,6 @@
 import * as api from "../services/api.js";
 import { docTagHtml } from "../components/statusBadge.js";
+import { esc } from "../utils/format.js?v=2";
 import { openTelegramLink, hapticImpact } from "../services/telegram.js";
 
 export async function render(container) {
@@ -17,8 +18,8 @@ export async function render(container) {
       <div class="doc">
         <div>
           <b>${doc.type}</b>
-          <div class="small">${doc.note}</div>
-          ${doc.coordinatorComment ? `<div class="small" style="color:var(--danger);margin-top:4px">💬 ${doc.coordinatorComment}</div>` : ""}
+          <div class="small">${esc(doc.note)}</div>
+          ${doc.coordinatorComment ? `<div class="small" style="color:var(--danger);margin-top:4px">💬 ${esc(doc.coordinatorComment)}</div>` : ""}
         </div>
         ${docTagHtml(doc.status)}
       </div>`

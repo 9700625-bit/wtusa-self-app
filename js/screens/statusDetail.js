@@ -1,6 +1,6 @@
 import * as api from "../services/api.js";
 import { runCtaAction } from "../services/actions.js";
-import { formatDate, daysUntil, daysLabel } from "../utils/format.js?v=2";
+import { formatDate, daysUntil, daysLabel, esc } from "../utils/format.js?v=2";
 import { goBack } from "../router.js";
 
 const SEVERITY_EMOJI = { ok: "🟢", active: "🔵", wait: "⚪", warn: "🟡", danger: "🔴" };
@@ -41,8 +41,17 @@ export async function render(container, params) {
     extraHtml += `
       <div class="card hero">
         <div class="sub">US Visa Interview 🇺🇸</div>
-        <h1 style="margin-bottom:2px">${formatDate(visa.appointmentDate, { forceYear: true })}</h1>
-        <div class="sub">${visa.appointmentTime} · ${visa.location}</div>
+        <h1 style="margin-bottom:2px">${
+          // Пока координатор не внёс запись об интервью, бэкенд отдаёт здесь
+          // null, а formatDate возвращал его как есть — в шаблонной строке это
+          // печаталось словом «null», три раза подряд (02.09.2026).
+          visa.appointmentDate ? formatDate(visa.appointmentDate, { forceYear: true }) : "Дата пока не назначена"
+        }</h1>
+        ${
+          visa.appointmentTime || visa.location
+            ? `<div class="sub">${[esc(visa.appointmentTime), esc(visa.location)].filter(Boolean).join(" · ")}</div>`
+            : `<div class="sub">Координатор сообщит время и место, как только назначит интервью.</div>`
+        }
         ${days !== null && days >= 0 ? `<div class="row" style="margin-top:10px"><div class="sub">До интервью</div><div class="metric">${daysLabel(days)}</div></div>` : ""}
       </div>`;
   }
@@ -84,7 +93,7 @@ export async function render(container, params) {
     extraHtml += `
       <div class="card" style="border-left:4px solid var(--danger);padding-left:12px">
         <h3>Комментарий координатора</h3>
-        <div class="sub">💬 ${stage.coordinatorComment}</div>
+        <div class="sub">💬 ${esc(stage.coordinatorComment)}</div>
       </div>`;
   }
 
@@ -135,8 +144,29 @@ export async function render(container, params) {
       // other and can leave the checked state flipped the wrong number of
       // times.
       input.disabled = true;
-      await api.toggleChecklistItem(input.dataset.checklist);
-      render(container, params);
+      // СБОЙ СОХРАНЕНИЯ БЫЛ НЕВИДИМ (02.09.2026). При ошибке сети промис
+      // отклонялся прямо в обработчике: render() не вызывался, галочка
+      // оставалась отмеченной и заблокированной. Студент был уверен, что
+      // прогресс сохранён, а на сервере ничего не было — и при следующем
+      // заходе галочка исчезала без объяснений.
+      const былаОтмечена = input.checked;
+      try {
+        await api.toggleChecklistItem(input.dataset.checklist);
+        render(container, params);
+      } catch (err) {
+        console.error("[checklist] не удалось сохранить:", err);
+        input.checked = !былаОтмечена; // возвращаем как было — правда важнее вида
+        input.disabled = false;
+        const ряд = input.closest("label") || input.parentElement;
+        if (ряд && !ряд.querySelector(".checklist-err")) {
+          const подсказка = document.createElement("div");
+          подсказка.className = "small checklist-err";
+          подсказка.style.color = "var(--danger)";
+          подсказка.textContent = "Не сохранилось — проверьте связь и нажмите ещё раз.";
+          ряд.appendChild(подсказка);
+          setTimeout(() => подсказка.remove(), 5000);
+        }
+      }
     });
   });
 }

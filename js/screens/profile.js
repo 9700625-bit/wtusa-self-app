@@ -1,6 +1,6 @@
 import * as api from "../services/api.js";
 import { runCtaAction } from "../services/actions.js";
-import { formatMoney } from "../utils/format.js?v=2";
+import { formatMoney, esc } from "../utils/format.js?v=2";
 
 export async function render(container) {
     const { participant, coordinator, programCost } = await api.getMe();
@@ -21,7 +21,7 @@ export async function render(container) {
                                                                                               </div>
                                                                                                     <div class="card">
                                                                                                             <h3>Ваш координатор</h3>
-                                                                                                                    <div class="profile-row"><b>${coordinator.name}</b><div class="small">${coordinator.role}</div></div>
+                                                                                                                    <div class="profile-row"><b>${esc(coordinator.name)}</b><div class="small">${esc(coordinator.role)}</div></div>
                                                                                                                           </div>
                                                                                                                                 <button class="btn secondary" id="my-events">Мои мероприятия</button>
                                                                                                                                       <button class="btn secondary" id="write-coordinator" style="margin-top:8px">Написать координатору</button>

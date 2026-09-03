@@ -31,7 +31,12 @@ export async function render(container) {
       <div class="pay">
         <div>
           <b>${p.label}</b>
-          <div class="small">${timingText(p)} · ${formatMoney(p.amount, currency)}</div>
+          <div class="small">${timingText(p)} · ${
+            // Сумма третьего платежа приходит из amoCRM и до синхронизации
+            // равна нулю. Раньше это рисовалось как «Оплата 3 · $0» и читалось
+            // студентом как «третий платёж не нужен» (02.09.2026).
+            Number(p.amount) > 0 ? formatMoney(p.amount, currency) : "сумма уточняется"
+          }</div>
           ${rateNote}
         </div>
         ${paymentTagHtml(p.status)}

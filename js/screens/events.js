@@ -1,7 +1,19 @@
 import * as api from "../services/api.js"; 
-import { formatDate } from "../utils/format.js?v=2";
+import { formatDate, esc } from "../utils/format.js?v=2";
 import { goBack } from "../router.js";
 import { BRIEFING_ROSTER } from "../config/briefingRoster.config.js";
+import { showAlert } from "../services/telegram.js";
+
+/** Технические коды из liveApi превращает в человеческий текст, а осмысленные
+ *  сообщения с бэкенда («На это время уже нет мест») показывает как есть. */
+function понятнаяОшибка_(err, запасной) {
+  const код = String((err && err.message) || "");
+  if (код === "OFFLINE") return "Нет связи. Проверьте интернет и попробуйте ещё раз.";
+  if (код === "TIMEOUT") return "Сервер долго не отвечает. Попробуйте ещё раз.";
+  if (код === "BACKEND_HTML") return "Приложение временно недоступно. Попробуйте через несколько минут.";
+  if (!код || /[a-z_]{4,}/i.test(код) && !/[а-яё]/i.test(код)) return запасной;
+  return код;
+}
 
 /**
  * A real Calendly-style booking flow, not just Calendly-looking cards:
@@ -223,7 +235,10 @@ async function doConfirm(container, groupId, chosenEventId, btnEl) {
     render(container);
   } catch (err) {
     btnEl.disabled = false;
-    alert(err.message || "Не удалось записаться, попробуйте ещё раз.");
+    // Через штатное окно Telegram, а не голый window.alert: системное окно
+    // браузера внутри Mini App выглядит чужеродно. И не показываем сырой
+    // err.message — там технический текст с бэкенда (02.09.2026).
+    showAlert(понятнаяОшибка_(err, "Не удалось записаться, попробуйте ещё раз."));
   }
 }
 
@@ -234,7 +249,7 @@ async function doDecline(container, groupId, btnEl) {
     render(container);
   } catch (err) {
     btnEl.disabled = false;
-    alert(err.message || "Не удалось сохранить ответ, попробуйте ещё раз.");
+    showAlert(понятнаяОшибка_(err, "Не удалось сохранить ответ, попробуйте ещё раз."));
   }
 }
 
@@ -297,8 +312,8 @@ function cardInnerHtml(ev) {
     <div class="evt-head">
       <div class="evt-icon">📅</div>
       <div>
-        <div class="evt-title">${ev.title}</div>
-        ${ev.description ? `<div class="evt-desc">${ev.description}</div>` : ""}
+        <div class="evt-title">${esc(ev.title)}</div>
+        ${ev.description ? `<div class="evt-desc">${esc(ev.description)}</div>` : ""}
       </div>
     </div>
     ${body}`;
@@ -321,7 +336,7 @@ function doneBodyHtml(ev) {
     <div class="evt-done">
       <div class="evt-done-ico ${ev.attended ? "ok" : "muted"}">${ev.attended ? "✓" : "—"}</div>
       <div class="evt-done-title">${ev.attended ? "Вы посетили" : "Мероприятие прошло"}</div>
-      <div class="sub">${ev.title}</div>
+      <div class="sub">${esc(ev.title)}</div>
     </div>`;
 }
 
@@ -332,11 +347,11 @@ function confirmedBodyHtml(ev) {
     <div class="evt-done">
       <div class="evt-done-ico ok">✓</div>
       <div class="evt-done-title">Вы записаны</div>
-      <div class="sub">${ev.title}</div>
+      <div class="sub">${esc(ev.title)}</div>
     </div>
     <div class="evt-meta" style="margin-top:14px">
       <div class="evt-meta-row"><span class="evt-meta-ico">🕐</span> ${formatDate(slot.date)}${slot.time ? " · " + slot.time : ""}</div>
-      ${slot.location ? `<div class="evt-meta-row"><span class="evt-meta-ico">📍</span> ${slot.location}</div>` : ""}
+      ${slot.location ? `<div class="evt-meta-row"><span class="evt-meta-ico">📍</span> ${esc(slot.location)}</div>` : ""}
     </div>
     <div class="evt-links-row">
       ${hasChoice ? `<button type="button" data-change-time>Изменить время</button>` : ""}
@@ -349,7 +364,7 @@ function declinedBodyHtml(ev) {
     <div class="evt-done">
       <div class="evt-done-ico muted">—</div>
       <div class="evt-done-title">Вы отказались</div>
-      <div class="sub">${ev.title}</div>
+      <div class="sub">${esc(ev.title)}</div>
     </div>
     <div class="evt-links-row">
       <button type="button" data-reopen>Всё-таки записаться</button>
@@ -367,7 +382,7 @@ function confirmPanelHtml(ev, state, showBackLink) {
   return `
     <div class="evt-meta">
       <div class="evt-meta-row"><span class="evt-meta-ico">🕐</span> ${formatDate(slot.date)}${slot.time ? " · " + slot.time : ""}</div>
-      ${slot.location ? `<div class="evt-meta-row"><span class="evt-meta-ico">📍</span> ${slot.location}</div>` : ""}
+      ${slot.location ? `<div class="evt-meta-row"><span class="evt-meta-ico">📍</span> ${esc(slot.location)}</div>` : ""}
       ${slot.spotsLeft !== null ? `<div class="evt-meta-row"><span class="evt-meta-ico">👥</span> ${full ? "мест нет" : "свободных мест: " + slot.spotsLeft}</div>` : ""}
     </div>
     ${showBackLink ? `<button type="button" class="evt-back-link" data-back-to-calendar>‹ Выбрать другое время</button>` : ""}
