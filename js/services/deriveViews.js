@@ -25,7 +25,7 @@ import {
   nextStage,
   GROUPS,
 } from "../config/roadmap.config.js";
-import { daysUntil, addDaysIso } from "../utils/format.js?v=2";
+import { daysUntil, addDaysIso } from "../utils/format.js?v=3";
 
 // Falls back to the very first stage if the backend ever sends a
 // currentStageId that doesn't match any known stage (e.g. a stale/unmapped
@@ -86,7 +86,17 @@ export function deriveRoadmap(state) {
       attended: attendedSet.has(s.id),
     })),
   }));
-  return { currentStageId: state.currentStageId, progress: computeProgress(state.currentStageId), groups };
+  // program/season отдаём наверх, чтобы экран «Путь» не подписывался
+  // захардкоженным «SELF 2027» (03.09.2026). Сезон синхронизируется из
+  // amoCRM, но приходит не всегда — экран сам решает, чем заменить.
+  const участник = state.participant || {};
+  return {
+    currentStageId: state.currentStageId,
+    progress: computeProgress(state.currentStageId),
+    groups,
+    program: участник.program || "",
+    season: участник.season || "",
+  };
 }
 
 export function deriveStageDetail(state, stageId) {
