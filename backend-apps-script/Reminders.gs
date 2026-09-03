@@ -55,17 +55,45 @@ function sendPaymentReminders_() {
       // deadline never triggers the "overdue" branch again); flagging last
       // means a failure here simply leaves the row eligible to retry on
       // tomorrow's run.
-      notifyParticipantByDealId_bySheetTelegramId_(row.telegram_id, "🔴 " + row.label + " просрочен. Пожалуйста, свяжитесь с координатором.");
+      notifyParticipantByDealId_bySheetTelegramId_(row.telegram_id, "🔴 " + escapeTgHtml_(row.label) + " просрочен. Пожалуйста, свяжитесь с координатором.");
       maybeCreateCoordinatorTask_(row.telegram_id, "Payment просрочен: " + row.label);
       updateRow("Payments", row._row, { status: "overdue" });
       return;
     }
 
-    const reminderFlagCol = daysLeft === 7 ? "reminder_7_sent" : daysLeft === 3 ? "reminder_3_sent" : daysLeft === 0 ? "reminder_0_sent" : null;
+    // «НЕ ПОЗЖЕ, ЧЕМ ЗА N ДНЕЙ», А НЕ «РОВНО ЗА N ДНЕЙ» (02.09.2026).
+    //
+    // Здесь стояло строгое равенство daysLeft === 7 / === 3 / === 0. Если
+    // ежедневный прогон не состоялся ровно в тот день — а это не гипотетика,
+    // прогон молча выходит по таймауту лока, если в это окно пришёл вебхук из
+    // amoCRM, — флаг оставался пустым, а назавтра daysLeft === 6 не попадал
+    // уже ни в одну ветку. Напоминание не отправлялось НИКОГДА, и ничто об
+    // этом не сообщало.
+    //
+    // Теперь порог «догоняющий»: берём ближайший непройденный рубеж из тех,
+    // что уже наступили. Флаг по-прежнему защищает от повторной отправки, а
+    // пропущенный день просто отработает на следующем прогоне.
+    let reminderFlagCol = null;
+    if (daysLeft <= 0) reminderFlagCol = "reminder_0_sent";
+    else if (daysLeft <= 3) reminderFlagCol = "reminder_3_sent";
+    else if (daysLeft <= 7) reminderFlagCol = "reminder_7_sent";
     if (!reminderFlagCol || row[reminderFlagCol] === "yes") return;
 
-    const label = daysLeft === 0 ? "сегодня" : "через " + daysLeft + " " + (daysLeft === 7 ? "дней" : "дня");
-    sendTelegramToSheetTelegramId_(row.telegram_id, "💳 Напоминание об оплате\n\n" + row.label + " — срок " + label + " (" + row.deadline + ").");
+    // formatSheetDate_ обязателен: row.deadline прочитан из таблицы и является
+    // объектом Date, а не строкой "2026-11-11". Без форматирования студент
+    // получал в Telegram «срок через 7 дней (Wed Nov 11 2026 00:00:00 GMT+0500
+    // (Yekaterinburg Standard Time))». Везде в проекте для этого есть хелпер —
+    // здесь его забыли (02.09.2026).
+    // Склонение теперь считается от реального числа дней: пороги стали
+    // «не позже чем», поэтому daysLeft может быть любым от 0 до 7, а не
+    // только 7, 3 или 0.
+    const остаток10 = daysLeft % 10;
+    const остаток100 = daysLeft % 100;
+    const сутки =
+      остаток10 === 1 && остаток100 !== 11 ? "день" :
+      остаток10 >= 2 && остаток10 <= 4 && (остаток100 < 12 || остаток100 > 14) ? "дня" : "дней";
+    const label = daysLeft <= 0 ? "сегодня" : "через " + daysLeft + " " + сутки;
+    sendTelegramToSheetTelegramId_(row.telegram_id, "💳 Напоминание об оплате\n\n" + escapeTgHtml_(row.label) + " — срок " + label + " (" + formatSheetDate_(row.deadline) + ").");
     updateRow("Payments", row._row, { [reminderFlagCol]: "yes" });
   });
 }

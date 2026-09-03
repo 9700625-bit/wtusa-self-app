@@ -116,6 +116,24 @@ function getDeal(dealId) {
   return amoApiFetch_("/api/v4/leads/" + dealId + "?with=contacts", "get");
 }
 
+/** Looks up the phone number of a deal's main contact (or its first linked
+ * contact, if none is flagged main) -- used by adminCreateLink so admin.html
+ * can offer a one-click "send in WhatsApp" button instead of the coordinator
+ * having to copy the link and paste it in by hand. `deal` must come from
+ * getDeal() (needs the ?with=contacts it already requests). Returns the raw
+ * phone string as stored in amoCRM (whatever format the contact has), or
+ * null if there's no linked contact or no phone on it. */
+function contactPhoneForDeal_(deal) {
+  const contacts = (deal && deal._embedded && deal._embedded.contacts) || [];
+  if (!contacts.length) return null;
+  const main = contacts.find((c) => c.is_main) || contacts[0];
+  const contact = amoApiFetch_("/api/v4/contacts/" + main.id, "get");
+  const fields = (contact && contact.custom_fields_values) || [];
+  const phoneField = fields.find((f) => f.field_code === "PHONE");
+  if (!phoneField || !phoneField.values || !phoneField.values.length) return null;
+  return phoneField.values[0].value;
+}
+
 /** Reads one custom field's value off a deal object returned by getDeal(). */
 function customFieldValue(deal, fieldId) {
   const fields = (deal && deal.custom_fields_values) || [];

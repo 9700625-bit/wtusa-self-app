@@ -32,6 +32,33 @@ function telegramApiFetch_(method, payload) {
   return json;
 }
 
+/**
+ * ЭКРАНИРОВАНИЕ HTML В СООБЩЕНИЯХ (02.09.2026).
+ *
+ * sendTelegramMessage жёстко ставит parse_mode: "HTML", а тексты собираются
+ * конкатенацией с данными, которые вводит человек: название мероприятия из
+ * координаторской страницы, название платежа, имя. Telegram при parse_mode
+ * HTML отклоняет сообщение целиком (ошибка 400), если натыкается на символ
+ * "<", не открывающий известный тег.
+ *
+ * Чем это било. Мероприятие с названием вроде «Брифинг <по документам>» —
+ * и КАЖДОЕ приглашение отваливается с 400. При этом строки EventInvitations
+ * уже созданы и помечены notified:"yes", поэтому sendPendingEventInvites их
+ * больше не подхватит: студенты не получат приглашение никогда, а координатор
+ * увидит лишь строчку в списке неудач и вряд ли поймёт причину.
+ *
+ * Экранируем три символа, значимых для HTML-разметки Telegram. Осознанно НЕ
+ * трогаем сам parse_mode: где-то в проекте разметка нужна (жирный шрифт), и
+ * отключение сломало бы её. Вместо этого экранируем вставляемые ЗНАЧЕНИЯ —
+ * через escapeTgHtml_ в местах сборки текста.
+ */
+function escapeTgHtml_(value) {
+  return String(value === null || value === undefined ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function sendTelegramMessage(chatId, text, opts) {
   const payload = Object.assign(
     { chat_id: chatId, text: text, parse_mode: "HTML", disable_web_page_preview: true },

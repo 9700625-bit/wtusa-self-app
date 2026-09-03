@@ -34,7 +34,13 @@ function getEventsForUser_(telegramId) {
     .map((inv) => {
       const slots = allEvents
         .filter((e) => e.group_id === inv.group_id)
-        .sort((a, b) => String(a.date + a.time).localeCompare(String(b.date + b.time)))
+        // СОРТИРОВКА ПОСЛЕ ФОРМАТИРОВАНИЯ (02.09.2026). Здесь сортировали
+        // по сырым значениям из листа — а это объекты Date, и их склейка даёт
+        // строку вида "Wed Nov 11 2026…". localeCompare сравнивал в первую
+        // очередь трёхбуквенное сокращение ДНЯ НЕДЕЛИ: среда 11 ноября
+        // оказывалась после четверга 12-го. Совпадало с правильным порядком
+        // только когда оба слота в один день. Теперь сначала приводим к
+        // "2026-11-11" + "15:00", и только потом сортируем.
         .map((e) => ({
           id: e.id,
           title: e.title,
@@ -42,11 +48,22 @@ function getEventsForUser_(telegramId) {
           date: formatSheetDate_(e.date),
           time: formatSheetTime_(e.time),
           location: e.location,
+          briefingKey: e.briefing_key || null,
           spotsLeft: eventSpotsLeft_(e.id, Number(e.capacity) || null),
-        }));
+        }))
+        .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
       if (!slots.length) return null; // event rows for this group_id got removed/renamed
       return {
         groupId: inv.group_id,
+        // ПОЛЕ, КОТОРОГО НЕ ХВАТАЛО (02.09.2026). Экран «Мероприятия» ищет
+        // briefingKey, чтобы отличить обязательный брифинг из реестра от
+        // разового мероприятия. Координаторская страница его отправляла, но
+        // бэкенд не имел ни колонки, ни записи, ни возврата — значение молча
+        // терялось. Из-за этого все девять позиций реестра у всех студентов
+        // навсегда оставались серыми «Ожидается», настоящее приглашение падало
+        // в «Дополнительные мероприятия», а счётчик посещённых брифингов
+        // показывал 0 из 9 даже тому, кто сходил на все.
+        briefingKey: slots[0].briefingKey || null,
         title: slots[0].title,
         description: slots[0].description,
         slots: slots,
@@ -100,8 +117,15 @@ function respondToEvent_(telegramUser, groupId, choice, chosenEventId) {
 
       const capacity = Number(slot.capacity) || null;
       if (capacity) {
+        // СРАВНИВАЕМ КАК СТРОКИ (02.09.2026). telegramId здесь — строка, а
+        // i.telegram_id прочитан из таблицы, где Google Sheets превратил
+        // "1077767749" в ЧИСЛО. Число не равно строке, поэтому условие «это не
+        // я» всегда было истинным и собственная бронь студента считалась чужим
+        // занятым местом: на слоте с одним местом человек, вернувшийся к своей
+        // же записи, получал «На это время уже нет мест». Весь остальной код
+        // (findRow, findRows в Sheets.gs) приводит к String() — здесь забыли.
         const taken = getRows("EventInvitations").filter(
-          (i) => i.status === "confirmed" && i.chosen_event_id === chosenEventId && i.telegram_id !== telegramId
+          (i) => i.status === "confirmed" && String(i.chosen_event_id) === String(chosenEventId) && String(i.telegram_id) !== String(telegramId)
         ).length;
         if (taken >= capacity) throw new Error("На это время уже нет мест — выберите другое.");
       }
@@ -126,6 +150,41 @@ function adminListParticipants_() {
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
 }
 
+/** Coordinator-facing "who's using the app" list for admin-users.html --
+ * every participant who has ever opened the Mini App (telegram_id present),
+ * with enough detail to tell a genuinely active student from one who linked
+ * once and never came back. `createdAt`/`lastActivity` are ISO strings (or
+ * null if a row somehow predates those columns) -- the frontend formats them.
+ * Sorted most-recently-active first, same idea as a normal inbox. */
+function adminListAllParticipants_() {
+  const toIso_ = (v) => (v ? new Date(v).toISOString() : null);
+  return getRows("Participants")
+    .filter((p) => p.telegram_id)
+    .map((p) => ({
+      telegramId: String(p.telegram_id),
+      name: p.name || "(без имени)",
+      program: p.program || "",
+      season: p.season || "",
+      stage: p.current_stage_id || "",
+      coordinatorName: p.coordinator_name || "",
+      createdAt: toIso_(p.created_at),
+      lastActivity: toIso_(p.last_activity),
+    }))
+    .sort((a, b) => new Date(b.lastActivity || 0) - new Date(a.lastActivity || 0));
+}
+
+/** Сделки, уже синхронизированные из amoCRM (через webhook), к которым ещё
+ * не привязан ни один Telegram-аккаунт — список для admin.html. Сделка
+ * появляется здесь только после первого сработавшего webhook по ней (см.
+ * Webhooks.gs) — совсем новая сделка без изменений статуса пока не попадёт
+ * в этот список; для неё в admin.html есть ручной ввод ID сделки. */
+function adminListUnlinkedDeals_() {
+  return getRows("Participants")
+    .filter((p) => p.amo_deal_id && !p.telegram_id)
+    .map((p) => ({ dealId: String(p.amo_deal_id), name: p.name || "Сделка #" + p.amo_deal_id }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+}
+
 /** One-click flow behind admin-events.html: creates one Events row per time
  * slot (sharing a generated group_id), invites every given telegramId, and
  * sends the Telegram notification immediately — no separate "run the
@@ -136,6 +195,11 @@ function adminCreateEventAndInvite_(payload) {
   const location = String((payload && payload.location) || "").trim();
   const slots = Array.isArray(payload && payload.slots) ? payload.slots : [];
   const telegramIds = Array.isArray(payload && payload.telegramIds) ? payload.telegramIds : [];
+  // briefingKey приходит с координаторской страницы (admin-events.html) и
+  // указывает, какой позиции обязательного реестра соответствует мероприятие.
+  // Раньше эту строку просто не читали — значение доходило до сервера и
+  // терялось; см. комментарий у briefingKey в getEventsForUser_ ниже.
+  const briefingKey = String((payload && payload.briefingKey) || "").trim();
   // Optional: ties this event to a roadmap stage (e.g. "CIEE_REGISTRATION") so
   // that marking a student's invitation attended=yes in EventInvitations
   // lights up a "Посещено ✓" badge on that stage in their Roadmap screen —
@@ -163,6 +227,7 @@ function adminCreateEventAndInvite_(payload) {
       location: location,
       capacity: slot.capacity ? Number(slot.capacity) : "",
       roadmap_stage_id: roadmapStageId,
+      briefing_key: briefingKey || "",
     });
   });
 
@@ -170,7 +235,7 @@ function adminCreateEventAndInvite_(payload) {
   const appName = CFG("TELEGRAM_APP_NAME");
   const link = "https://t.me/" + botUsername + "/" + appName + "?startapp=event_" + encodeURIComponent(groupId);
   const text =
-    "📅 Приглашение: " + title + "\n\nОткройте приложение, чтобы выбрать время и записаться (или отказаться, если не сможете прийти).\n" + link;
+    "📅 Приглашение: " + escapeTgHtml_(title) + "\n\nОткройте приложение, чтобы выбрать время и записаться (или отказаться, если не сможете прийти).\n" + link;
 
   let sent = 0;
   const failures = [];
@@ -242,7 +307,7 @@ function sendPendingEventInvites() {
     const title = slot ? slot.title : "Мероприятие";
     const link = "https://t.me/" + botUsername + "/" + appName + "?startapp=event_" + encodeURIComponent(row.group_id);
     const text =
-      "📅 Приглашение: " + title + "\n\nОткройте приложение, чтобы выбрать время и записаться (или отказаться, если не сможете прийти).\n" + link;
+      "📅 Приглашение: " + escapeTgHtml_(title) + "\n\nОткройте приложение, чтобы выбрать время и записаться (или отказаться, если не сможете прийти).\n" + link;
     sendTelegramMessage(row.telegram_id, text);
     updateRow("EventInvitations", row._row, { notified: "yes", invited_at: row.invited_at || new Date() });
     logEvent(row.telegram_id, "coordinator", "event_invite_sent", "", row.group_id);

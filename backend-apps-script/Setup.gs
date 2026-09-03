@@ -36,7 +36,10 @@ const SHEET_SCHEMA = {
   // full workflow. One row per date/time; give alternative time slots of the
   // SAME session the same group_id (a standalone event can reuse its own id
   // as group_id).
-  Events: ["id", "group_id", "title", "description", "date", "time", "location", "capacity", "roadmap_stage_id"],
+  // briefing_key связывает мероприятие с позицией обязательного реестра брифингов
+  // (js/config/briefingRoster.config.js). Без неё экран «Мероприятия» не мог
+  // отличить обязательный брифинг от разового, см. комментарий в Events.gs.
+  Events: ["id", "group_id", "title", "description", "date", "time", "location", "capacity", "roadmap_stage_id", "briefing_key"],
   // One row per invited student per event group. Coordinator fills in
   // telegram_id + group_id + status="invited" — everything else is managed
   // by the app/script (notified, chosen_event_id, responded_at, attended).

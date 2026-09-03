@@ -13,10 +13,18 @@
  *   GET/POST ?action=amoWebhook&secret=...       -> amoCRM webhook receiver (Webhooks.gs)
  *   GET  ?action=amoOauthCallback&code=...        -> one-time amoCRM OAuth callback (AmoCRM.gs)
  *   GET  ?action=adminCreateLink&dealId=...&secret=<ADMIN_SECRET> -> ready-to-send
- *        Telegram linking link for one amoCRM deal (used by admin.html — see SETUP.md §5.3)
+ *        Telegram linking link (+ the deal's phone, if amoCRM has one) for
+ *        one amoCRM deal (used by admin.html — see SETUP.md §5.3)
  *   GET  ?action=adminListParticipants&secret=<ADMIN_SECRET>       -> name list for admin-events.html
+ *   GET  ?action=adminListAllParticipants&secret=<ADMIN_SECRET>    -> full "who's using the app" list
+ *        (name, stage, joined/last-active dates) for admin-users.html
+ *   GET  ?action=adminListUnlinkedDeals&secret=<ADMIN_SECRET>      -> deals with no Telegram link yet, for admin.html
  *   POST ?action=adminCreateEvent&secret=<ADMIN_SECRET>  body:{title, description, location, slots:[{date,time,capacity}], telegramIds:[...], roadmapStageId?}
  *        -> creates the event slot(s), invites the given students, sends the Telegram notification (admin-events.html)
+ *   POST ?action=adminSendWhatsApp&secret=<ADMIN_SECRET>  body:{phone, text}
+ *        -> sends `text` as a WhatsApp message to `phone` through Wazzup24, using
+ *           the same channel/number coordinators already chat with clients from
+ *           inside amoCRM (used by admin.html — see SETUP.md §5.4)
  *
  * IMPORTANT CORS gotcha: Apps Script Web Apps don't implement CORS preflight
  * (OPTIONS). GET requests work fine cross-origin. For POST, the frontend
@@ -40,6 +48,16 @@ function doGet(e) {
     const action = e.parameter.action;
 
     if (action === "amoOauthCallback") {
+      // ЗАКРЫТО ПАРОЛЕМ (02.09.2026). Это был единственный роут во всём API без
+      // какой-либо проверки, а адрес бэкенда лежит открытым текстом в
+      // js/services/config.js на GitHub Pages — то есть дёрнуть его мог кто угодно.
+      // При неверном code в ответ уходил полный текст ошибки amoCRM (готовая
+      // справка по вашей интеграции), а при валидном — storeAmoTokens_
+      // безусловно перезаписывал AMO_ACCESS_TOKEN в Script Properties чужим
+      // токеном, после чего вся синхронизация вставала с 401 до ручного
+      // восстановления. Обмен кода на токен делает координатор при настройке,
+      // поэтому пароль администратора здесь уместен и ничего не ломает.
+      if (!timingSafeEqual_(e.parameter.secret, CFG("ADMIN_SECRET"))) return jsonOutput_({ error: "bad secret" });
       exchangeAmoAuthCode(e.parameter.code);
       return HtmlService.createHtmlOutput("<h3>amoCRM подключён. Можно закрыть эту вкладку.</h3>");
     }
@@ -64,6 +82,11 @@ function doGet(e) {
       return jsonOutput_(adminListParticipants_());
     }
 
+    if (action === "adminListAllParticipants") {
+      if (!timingSafeEqual_(e.parameter.secret, CFG("ADMIN_SECRET"))) return jsonOutput_({ error: "bad secret" });
+      return jsonOutput_(adminListAllParticipants_());
+    }
+
     if (action === "adminCreateLink") {
       if (!timingSafeEqual_(e.parameter.secret, CFG("ADMIN_SECRET"))) return jsonOutput_({ error: "bad secret" });
       const dealId = e.parameter.dealId;
@@ -72,7 +95,24 @@ function doGet(e) {
       const botUsername = CFG("TELEGRAM_BOT_USERNAME");
       const appName = CFG("TELEGRAM_APP_NAME");
       const link = "https://t.me/" + botUsername + "/" + appName + "?startapp=link_" + token;
-      return jsonOutput_({ link: link, dealId: dealId, token: token });
+      // Best-effort: also hand back the client's phone (straight from amoCRM,
+      // not from the Participants sheet -- works even for a brand-new deal
+      // the webhook hasn't synced yet) so admin.html can offer a one-click
+      // "send in WhatsApp" button instead of copy-paste. A failure here
+      // (no linked contact, no phone field, amoCRM hiccup) must not break
+      // link creation itself -- the coordinator can still copy the link.
+      let phone = null;
+      try {
+        phone = contactPhoneForDeal_(getDeal(dealId));
+      } catch (err) {
+        Logger.log("adminCreateLink: could not fetch phone for deal %s: %s", dealId, err);
+      }
+      return jsonOutput_({ link: link, dealId: dealId, token: token, phone: phone });
+    }
+
+    if (action === "adminListUnlinkedDeals") {
+      if (!timingSafeEqual_(e.parameter.secret, CFG("ADMIN_SECRET"))) return jsonOutput_({ error: "bad secret" });
+      return jsonOutput_(adminListUnlinkedDeals_());
     }
 
     return jsonOutput_({ error: "unknown action" });
@@ -102,6 +142,18 @@ function doPost(e) {
       return jsonOutput_(adminCreateEventAndInvite_(body));
     }
 
+    // admin.html: sends the ready-made linking message straight to the
+    // client's WhatsApp via Wazzup, through the same channel/number the
+    // coordinator already uses inside amoCRM's imBox -- no separate
+    // WhatsApp Web session, no copy-paste.
+    if (action === "adminSendWhatsApp") {
+      if (!timingSafeEqual_(e.parameter.secret, CFG("ADMIN_SECRET"))) return jsonOutput_({ error: "bad secret" });
+      const body = e.postData && e.postData.contents ? JSON.parse(e.postData.contents) : {};
+      if (!body.phone) return jsonOutput_({ error: "phone required" });
+      if (!body.text) return jsonOutput_({ error: "text required" });
+      return jsonOutput_(sendWazzupWhatsApp_(body.phone, body.text));
+    }
+
     // Everything else: our own Mini App, sent as a text/plain JSON body
     // (see CORS note above).
     const body = e.postData && e.postData.contents ? JSON.parse(e.postData.contents) : {};
@@ -115,7 +167,7 @@ function doPost(e) {
       case "toggleChecklist":
         return jsonOutput_(toggleChecklistItem_(user, body.itemId));
       case "link":
-        return jsonOutput_({ amoDealId: consumeLinkToken(body.token, String(user.id)) });
+        return jsonOutput_({ amoDealId: consumeLinkToken(body.token, String(user.id), user) });
       case "respondEvent":
         return jsonOutput_(respondToEvent_(user, body.groupId, body.choice, body.chosenEventId));
       default:
@@ -223,6 +275,49 @@ const DEFAULT_CHECKLIST_ITEMS = [
   "Документы распечатаны", "Pre-Departure Briefing",
 ];
 
+/**
+ * ЗАСЕВ ДОКУМЕНТОВ И ЧЕК-ЛИСТА (02.09.2026).
+ *
+ * Раньше эти строки создавались ВНУТРИ ветки «создаём нового участника» в
+ * ensureParticipantRow_. Из-за этого студент, пришедший по ссылке от
+ * координатора, не получал их вообще: к моменту первого запроса state его
+ * строка уже существовала (её только что создала или дополнила привязка),
+ * поэтому ветка создания не выполнялась. Документы потом подтягивались из
+ * amoCRM вебхуком, а вот чек-лист подготовки к вылету брать неоткуда — он
+ * оставался ПУСТЫМ у всех, кто пришёл нормальным путём, по ссылке.
+ *
+ * Теперь засев вынесен отдельно и идемпотентен: проверяет, есть ли уже строки,
+ * и досевает только недостающее. Вызывается из обоих мест — и при создании
+ * участника, и после успешной привязки по ссылке.
+ */
+function seedParticipantDefaults_(telegramId) {
+  const документы = findRows("Documents", "telegram_id", telegramId);
+  if (!документы.length) {
+    DEFAULT_DOCUMENT_TYPES.forEach((type, i) => {
+      appendRow("Documents", {
+        telegram_id: telegramId,
+        doc_id: "doc_" + (i + 1),
+        type: type,
+        status: "miss",
+        note: "Документ не загружен",
+        coordinator_comment: "",
+        updated_at: "",
+      });
+    });
+  }
+  const чеклист = findRows("PreDepartureChecklist", "telegram_id", telegramId);
+  if (!чеклист.length) {
+    DEFAULT_CHECKLIST_ITEMS.forEach((label, i) => {
+      appendRow("PreDepartureChecklist", {
+        telegram_id: telegramId,
+        item_id: "chk_" + i,
+        label: label,
+        done: "",
+      });
+    });
+  }
+}
+
 /** First time we see a telegram_id, create its row (unlinked until consumeLinkToken runs)
  * and seed the standard document checklist so the Documents screen isn't empty.
  * Returns the participant row (existing or newly-created) so callers don't
@@ -243,6 +338,26 @@ function ensureParticipantRow_(telegramId, telegramUser) {
   // near-simultaneous first opens from the same brand-new user could both
   // pass the check above and both create duplicate Participants/Documents/
   // PreDepartureChecklist rows.
+  // ВХОД ТОЛЬКО ПО ССЫЛКЕ ОТ КООРДИНАТОРА (02.09.2026).
+  //
+  // Раньше здесь безусловно заводился участник: ссылка на бота публичная, и
+  // ЛЮБОЙ пользователь Telegram, открывший приложение, получал строку в
+  // Participants плюс пять строк документов и восемь пунктов чек-листа. Эти
+  // люди попадали в admin-users.html вперемешку с настоящими студентами, и
+  // отличить их было нечем.
+  //
+  // Теперь новая строка появляется только через consumeLinkToken — то есть по
+  // персональной ссылке, которую выдал координатор. Все, кто уже привязан,
+  // проходят выше по ветке `existing` и ничего не замечают.
+  //
+  // Код ошибки читает фронтенд (js/router.js) и показывает человеческий экран
+  // вместо технического текста.
+  throw new Error("NOT_INVITED: доступ к приложению выдаёт координатор");
+}
+
+/** Создаёт строку участника — вызывается ТОЛЬКО из consumeLinkToken, то есть
+ * когда человек пришёл по персональной ссылке координатора. */
+function createParticipantRow_(telegramId, telegramUser) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) throw new Error("Система сейчас занята — попробуйте ещё раз через несколько секунд.");
   try {
@@ -261,25 +376,7 @@ function ensureParticipantRow_(telegramId, telegramUser) {
       last_activity: new Date(),
     };
     appendRow("Participants", newRow);
-    DEFAULT_DOCUMENT_TYPES.forEach((type, i) => {
-      appendRow("Documents", {
-        telegram_id: telegramId,
-        doc_id: "doc_" + (i + 1),
-        type: type,
-        status: "miss",
-        note: "Документ не загружен",
-        coordinator_comment: "",
-        updated_at: "",
-      });
-    });
-    DEFAULT_CHECKLIST_ITEMS.forEach((label, i) => {
-      appendRow("PreDepartureChecklist", {
-        telegram_id: telegramId,
-        item_id: "chk_" + i,
-        label: label,
-        done: "",
-      });
-    });
+    seedParticipantDefaults_(telegramId);
     return newRow;
   } finally {
     lock.releaseLock();

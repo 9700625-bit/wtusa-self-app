@@ -93,6 +93,23 @@ function syncDealToSheets(dealId) {
       coordinator_name: coordinator ? coordinator.name : (previous && previous.coordinator_name) || "",
       coordinator_tg: coordinator ? coordinator.telegram_username : (previous && previous.coordinator_tg) || "",
       coordinator_avatar_url: coordinator ? coordinator.avatar_url : (previous && previous.coordinator_avatar_url) || "",
+      // ДАТА РЕГИСТРАЦИИ В CIEE (02.09.2026). Колонка была в схеме и читалась в
+      // двух местах, но НЕ ЗАПИСЫВАЛАСЬ ни одной строкой кода во всём проекте.
+      // Из-за этого не работала целая ветка автоматики: фильтр
+      // `p.ciee_registration_date` в sendCieeActivationReminders_ отсеивал
+      // всех до единого, поэтому напоминания «осталось 2 дня / 1 день /
+      // истекает сегодня» и эскалация координатору не отправлялись никому, а
+      // обратный отсчёт на экране студента всегда был пустым.
+      //
+      // Берём дату из кастомного поля amoCRM, если оно настроено. Если поля
+      // нет — подставляем момент перехода на этап CIEE_REGISTRATION: для
+      // пятидневного отсчёта это ровно то, что нужно, и это лучше, чем
+      // молчащая автоматика. Уже записанную дату не перетираем, иначе отсчёт
+      // начинался бы заново при каждом вебхуке.
+      ciee_registration_date:
+        (previous && previous.ciee_registration_date) ||
+        fieldGet("FIELD_ID_CIEE_REG_DATE") ||
+        (newStageId === "CIEE_REGISTRATION" ? Utilities.formatDate(new Date(), "GMT+5", "yyyy-MM-dd") : ""),
       last_synced_at: new Date(),
     });
 
@@ -149,7 +166,22 @@ function syncPaymentsFromDeal_(deal, participant) {
       status = "paid";
       paidDate = (existing && existing.paid_date) || Utilities.formatDate(new Date(), "GMT+5", "yyyy-MM-dd");
     } else {
-      status = deadline.getTime() < Date.now() ? "overdue" : "awaiting";
+      // НЕ СТАВИМ overdue РАНЬШЕ НАПОМИНАНИЯ (02.09.2026).
+      //
+      // Здесь стояло status = просрочен ? "overdue" : "awaiting". Вебхук
+      // прилетает при ЛЮБОМ изменении сделки, поэтому статус переключался на
+      // "overdue" молча — без сообщения студенту и без задачи координатору.
+      // А ежедневный прогон напоминаний (Reminders.gs) проверяет
+      // `daysLeft < 0 && row.status !== "overdue"` — то есть увидев уже
+      // проставленный статус, он ничего не делал. В итоге «🔴 Оплата
+      // просрочена» не приходило НИКОГДА: срок истекал вечером, утром
+      // координатор что-то правил в сделке, и уведомление пропадало.
+      //
+      // Теперь вебхук про просрочку не решает: он только различает «оплачено»
+      // и «ждём оплату», а перевод в overdue вместе с уведомлением остаётся
+      // работой напоминаний. Уже проставленный ранее overdue сохраняем —
+      // сбрасывать его в awaiting значило бы прислать напоминание повторно.
+      status = existing && existing.status === "overdue" ? "overdue" : "awaiting";
       paidDate = "";
     }
 
@@ -249,12 +281,31 @@ function syncDocumentsFromDeal_(deal, participant) {
     if (!status) return; // не выбрано в амоCRM — не трогаем то, что уже в таблице
 
     const existing = existingDocs.find((d) => d.doc_id === cfg.docId);
+
+    // НЕ ОТКАТЫВАЕМ СВЕЖУЮ ЗАГРУЗКУ СТУДЕНТА (02.09.2026).
+    //
+    // Сценарий, который ломался. Студент загрузил исправленный документ →
+    // uploadDocument_ поставил статус "review" («на проверке»). Но в карточке
+    // amoCRM у координатора ещё стоит «Нужна корректировка» — он же файл ещё
+    // не смотрел. Любое следующее изменение сделки давало вебхук, и эта ветка
+    // перезаписывала "review" обратно в "need". Загрузка исчезала из
+    // интерфейса, студент видел тот же красный статус и грузил файл заново.
+    //
+    // Правило: пока документ ждёт проверки, вебхук может только ПОДТВЕРДИТЬ
+    // приёмку ("Принято" в amoCRM — это решение координатора, оно новее).
+    // Повторное «нужна корректировка» из CRM в этот момент — просто эхо
+    // старого значения поля, и его мы игнорируем.
+    if (existing && existing.status === "review" && status === "need") return;
+
     const updated = {
       telegram_id: participant.telegram_id,
       doc_id: cfg.docId,
       type: cfg.type,
       status: status,
       note: status === "ok" ? "Принято координатором" : "Нужна корректировка — свяжитесь с координатором",
+      // При приёмке чистим старый комментарий: иначе рядом со статусом
+      // «Принято» продолжало висеть прошлое «переснимите страницу 2».
+      coordinator_comment: status === "ok" ? "" : (existing && existing.coordinator_comment) || "",
       updated_at: new Date(),
     };
     if (existing) {

