@@ -73,3 +73,27 @@ export function getStartParam() {
   if (idx === -1) return { type: startParam, rest: "" };
   return { type: startParam.slice(0, idx), rest: startParam.slice(idx + 1) };
 }
+
+/**
+ * ЕДИНОЕ ОКНО СООБЩЕНИЙ (02.09.2026).
+ *
+ * В приложении было два способа сообщить что-то человеку: штатный
+ * Telegram.WebApp.showAlert (правильный — окно выглядит частью Telegram) и
+ * голый window.alert в events.js (чужеродное системное окно браузера). Плюс
+ * места, где сообщать было нечем, и кнопка просто молчала.
+ *
+ * Здесь один вход для всех: пробуем окно Telegram, а если приложение открыли
+ * в обычном браузере (SDK нет) — откатываемся на window.alert.
+ */
+export function showAlert(message) {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg && typeof tg.showAlert === "function") {
+    try {
+      tg.showAlert(String(message));
+      return;
+    } catch (err) {
+      console.warn("[telegram] showAlert недоступен, откатываюсь на alert:", err);
+    }
+  }
+  window.alert(String(message));
+}

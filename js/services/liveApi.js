@@ -31,23 +31,65 @@ const STATE_CACHE_MS = 5 * 60 * 1000;
 // concurrent caller awaits the same single request.
 let statePromise = null;
 
-async function apiGet(action, extraParams) {
-    const params = new URLSearchParams({ action, initData: getInitData(), ...(extraParams || {}) });
-    const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, { method: "GET" });
-    const json = await resp.json();
+/**
+ * ТАЙМАУТ И РАЗБОР ОТВЕТА (02.09.2026).
+ *
+ * Здесь было два пробела, и оба били по студенту на слабой сети.
+ *
+ * Первый: fetch без таймаута. Если запрос повисал — метро, лифт, холодный
+ * старт Apps Script — он не завершался НИКОГДА. Значит не срабатывал ни
+ * catch, ни finally, и человек смотрел на крутящийся кружок минуту и больше,
+ * без единого слова и без возможности повторить.
+ *
+ * Второй: resp.json() вызывался без проверки, что ответ вообще JSON. Apps
+ * Script при исчерпании квоты или проблеме с доступом отдаёт HTML-страницу, и
+ * студент получал на экран «Unexpected token '<' ... is not valid JSON».
+ *
+ * ЗАЧЕМ 25 СЕКУНД. Холодный старт Apps Script занимает до 10–15 секунд — это
+ * нормальная работа, а не сбой, обрывать её нельзя. Берём с запасом, но так,
+ * чтобы человек не ждал бесконечно.
+ */
+const ТАЙМАУТ_МС = 25000;
+
+async function запросить_(url, options) {
+    // AbortController есть во всех браузерах, где работает Telegram Mini App.
+    const controller = new AbortController();
+    const таймер = setTimeout(() => controller.abort(), ТАЙМАУТ_МС);
+    let resp;
+    try {
+        resp = await fetch(url, { ...(options || {}), signal: controller.signal });
+    } catch (err) {
+        // Различаем «истекло время» и «сети нет» — на экране это разные советы.
+        if (err && err.name === "AbortError") throw new Error("TIMEOUT");
+        throw new Error("OFFLINE");
+    } finally {
+        clearTimeout(таймер);
+    }
+
+    const текст = await resp.text();
+    let json;
+    try {
+        json = JSON.parse(текст);
+    } catch (err) {
+        // Не JSON — почти всегда HTML-страница ошибки от Google.
+        console.error("[api] сервер ответил не JSON:", текст.slice(0, 300));
+        throw new Error("BACKEND_HTML");
+    }
     if (json.error) throw new Error(json.error);
     return json;
 }
 
+async function apiGet(action, extraParams) {
+    const params = new URLSearchParams({ action, initData: getInitData(), ...(extraParams || {}) });
+    return запросить_(`${BACKEND_URL}?${params.toString()}`, { method: "GET" });
+}
+
 async function apiPost(action, payload) {
-    const resp = await fetch(`${BACKEND_URL}?action=${encodeURIComponent(action)}`, {
+    return запросить_(`${BACKEND_URL}?action=${encodeURIComponent(action)}`, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" }, // see CORS note above
           body: JSON.stringify({ initData: getInitData(), ...(payload || {}) }),
     });
-    const json = await resp.json();
-    if (json.error) throw new Error(json.error);
-    return json;
 }
 
 async function getState(force) {

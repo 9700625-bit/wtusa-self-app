@@ -8,7 +8,7 @@
  * from participant-specific data (real CIEE portal link, coordinator chat).
  */
 
-import { openExternalLink, openTelegramLink, hapticImpact } from "./telegram.js";
+import { openExternalLink, openTelegramLink, hapticImpact, showAlert } from "./telegram.js";
 import * as api from "./api.js";
 
 const MOCK_CIEE_PORTAL_URL = "https://www.ciee.org/participant-login";
@@ -35,7 +35,13 @@ export async function runCtaAction(action, meta = {}) {
       if (username) {
         openTelegramLink(`https://t.me/${username}`);
       } else {
+        // МОЛЧАЛИВАЯ КНОПКА (02.09.2026). Пока координатор не проставлен в
+        // сделке, telegramUsername приходит пустым, и нажатие уходило в
+        // console.warn — с точки зрения студента кнопка просто не работала.
+        // На экране «Документы» этот же случай обработан правильно, здесь
+        // забыли. Показываем то же объяснение через штатное окно Telegram.
         console.warn("[actions] writeCoordinator: no coordinator assigned yet");
+        showAlert("Координатор ещё не назначен. Он появится здесь, как только вас закрепят за менеджером.");
       }
       break;
     }
