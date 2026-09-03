@@ -41,7 +41,14 @@ function bindStepHandlers(root) {
 }
 
 export async function render(container) {
-  const { groups, currentStageId, progress } = await api.getRoadmap();
+  const { groups, currentStageId, progress, program, season } = await api.getRoadmap();
+
+  // СЕЗОН ИЗ ДАННЫХ, А НЕ ИЗ КОДА (03.09.2026). Здесь стояло захардкоженное
+  // «SELF 2027» — участнику следующего сезона приложение писало бы чужой год.
+  // Сезон синхронизируется из amoCRM (FIELD_ID_SEASON), но это поле может
+  // быть не настроено, поэтому при его отсутствии оставляем ровно прежнюю
+  // подпись: показать старый текст лучше, чем потерять год совсем.
+  const подпись = program && season ? `${program} ${season}` : "SELF 2027";
 
   // Only the currently-active group's steps are built up front. A native
   // <details> keeps its children in the DOM even while collapsed, so
@@ -76,7 +83,7 @@ export async function render(container) {
   container.innerHTML = `
     <section class="screen active">
       <div class="card">
-        <div class="kicker">SELF 2027</div>
+        <div class="kicker">${подпись}</div>
         <h1>Мой путь</h1>
         <div class="sub">От оформления до вылета в США · прогресс ${progress}%</div>
       </div>

@@ -1,6 +1,6 @@
 import * as api from "../services/api.js";
 import { runCtaAction } from "../services/actions.js";
-import { formatDate, formatMoney, daysUntil, daysLabel, esc } from "../utils/format.js?v=2";
+import { formatDate, formatMoney, daysUntil, daysLabel, esc } from "../utils/format.js?v=3";
 import { stageRoute } from "../utils/navigation.js";
 
 export async function render(container) {
@@ -25,6 +25,17 @@ export async function render(container) {
   const paymentDays = nearestPayment ? daysUntil(nearestPayment.deadline) : null;
   const paymentDot = paymentDays !== null && paymentDays <= 3 ? "warn" : "active";
 
+  // СРОК МОЖЕТ БЫТЬ ПУСТЫМ (03.09.2026). Раньше здесь безусловно печаталось
+  // «до <дата>», и на платеже без срока выходило «до null» (formatDate
+  // возвращал null на пустом значении). Случай не гипотетический: третий
+  // платёж синхронизируется из amoCRM отдельно (syncVariablePayment3_ в
+  // Webhooks.gs), и если координатор поставил статус «Не оплачено», но не
+  // заполнил дату, платёж получает status: "awaiting" и deadline: "" —
+  // и именно он попадает в блок «Ближайшее» на главной.
+  const paymentWhen = nearestPayment && nearestPayment.deadline
+    ? `до ${formatDate(nearestPayment.deadline)}`
+    : "срок уточняется";
+
   const upcomingHtml = `
     <div class="card">
       <h3>Ближайшее</h3>
@@ -33,7 +44,7 @@ export async function render(container) {
           ? `<div class="status">
               <span class="dot ${paymentDot}"></span>
               <div><b>${nearestPayment.label}</b>
-                <div class="sub">до ${formatDate(nearestPayment.deadline)} · ${formatMoney(nearestPayment.amount, nearestPayment.currency)}${
+                <div class="sub">${paymentWhen} · ${formatMoney(nearestPayment.amount, nearestPayment.currency)}${
                   paymentDays !== null
         ? paymentDays < 0
           // Просроченный платёж на главной подписывался «осталось N дней» —

@@ -1,6 +1,6 @@
 import * as api from "../services/api.js";
 import { docTagHtml } from "../components/statusBadge.js";
-import { esc } from "../utils/format.js?v=2";
+import { esc } from "../utils/format.js?v=3";
 import { openTelegramLink, hapticImpact } from "../services/telegram.js";
 
 export async function render(container) {

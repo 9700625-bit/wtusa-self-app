@@ -1,9 +1,13 @@
 import * as api from "../services/api.js";
 import { paymentTagHtml } from "../components/statusBadge.js";
-import { formatDate, formatMoney, daysLabel } from "../utils/format.js?v=2";
+import { formatDate, formatMoney, daysLabel } from "../utils/format.js?v=3";
 
 function timingText(p) {
   if (p.status === "paid" && p.paidDate) return `Оплачено ${formatDate(p.paidDate)}`;
+  // Срок может быть ещё не известен: пока вебхук amoCRM не принёс дедлайны,
+  // mergeWithDefaultPayments_ (Api.gs) отдаёт deadline: null. Без этой ветки
+  // получалось «до » с висящим предлогом (а до правки formatDate — «до null»).
+  if (!p.deadline) return "срок уточняется";
   if (p.daysUntilDeadline == null) return `до ${formatDate(p.deadline)}`;
   if (p.daysUntilDeadline >= 0) return `до ${formatDate(p.deadline)} · осталось ${daysLabel(p.daysUntilDeadline)}`;
   return `до ${formatDate(p.deadline)} · просрочено на ${daysLabel(p.daysUntilDeadline)}`;

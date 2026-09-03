@@ -1,6 +1,6 @@
 import * as api from "../services/api.js";
 import { runCtaAction } from "../services/actions.js";
-import { formatDate, daysUntil, daysLabel, esc } from "../utils/format.js?v=2";
+import { formatDate, daysUntil, daysLabel, esc } from "../utils/format.js?v=3";
 import { goBack } from "../router.js";
 
 const SEVERITY_EMOJI = { ok: "🟢", active: "🔵", wait: "⚪", warn: "🟡", danger: "🔴" };
