@@ -72,7 +72,7 @@ export const STAGES = [
       whatsNext: "ABC Universe проверит вашу анкету.",
     },
     cta: { label: "Открыть инструкцию", action: "openInstruction" },
-    secondaryCta: { label: "Не пришло письмо?", action: "writeCoordinator" },
+    secondaryCta: { label: "Не пришло письмо?", action: "writeCoordinator" }, instructionUrl: "https://drive.google.com/file/d/1qZyVkZPosrvxXZtkclmO0aaR7mp9YvKi/view?usp=drive_link",
     deadlineDays: 5,
   },
   // ПОРЯДОК ЭТАПОВ CIEE (03.09.2026). Раньше «Проверка анкеты» стояла ПЕРЕД
