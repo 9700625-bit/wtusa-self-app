@@ -35,7 +35,10 @@ export async function render(container, params) {
       </div>`;
   }
 
-  if (stage.id === "VISA_FINAL_CALL") {
+  if (stage.id === "VISA_FINAL_CALL" || stage.id === "VISA_INTERVIEW_SCHEDULED") {
+    // 04.09.2026: интервью впервые становится известным на VISA_INTERVIEW_SCHEDULED
+    // (новый этап), а VISA_FINAL_CALL — это просто напоминание перед ним же, так
+    // что карточка с датой/временем/обратным отсчётом нужна на обоих.
     const visa = await api.getVisaInfo();
     const days = daysUntil(visa.appointmentDate);
     extraHtml += `

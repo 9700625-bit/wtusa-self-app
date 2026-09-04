@@ -2,8 +2,10 @@ import * as api from "../services/api.js";
 import { hapticNotification } from "../services/telegram.js";
 
 const CELEBRATION_COPY = {
-  PLACED: {
-    heading: "YOU'RE PLACED!",
+  // 04.09.2026: PLACED переименован в PLACEMENT_COMPLETED вместе с
+  // переработкой всей группы job_offer (см. roadmap.config.js).
+  PLACEMENT_COMPLETED: {
+    heading: "Job Offer подтверждён 🎉",
     emoji: "🇺🇸",
     lines: ["Ваш Job Offer полностью подтверждён CIEE.", "Один из главных этапов программы завершён."],
   },
