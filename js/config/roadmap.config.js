@@ -24,6 +24,19 @@
  *   wait    — upcoming, not started yet (⚪️)
  *   warn    — attention / deadline approaching (🟡)
  *   danger  — action required / problem (🔴)
+ *
+ * ИСКЛЮЧЕНИЕ ИЗ ПРАВИЛА ВЫШЕ (04.09.2026). Job Offer и Visa группы ниже
+ * переписаны под новую воронку self (CLAUDE.md, п. "добавить сделки в
+ * воронке self"), но эти статусы В AMOCRM ЕЩЁ НЕ СОЗДАНЫ — пользователь
+ * только планирует их завести/переставить там. Это единственный момент в
+ * истории файла, когда стадия добавлена ДО существования статуса в CRM.
+ * Последствие: пока STATUS_ID_MAP_JSON не обновлён реальными status_id для
+ * новых имён (JOB_OFFER_SENT_INTL_REP, JOB_OFFER_SUBMITTED_CIEE,
+ * JOB_OFFER_HOST_REVIEW, JOB_OFFER_PARTICIPANT_REVIEW,
+ * JOB_OFFER_CIEE_FINAL_REVIEW, PLACEMENT_COMPLETED, VISA_INTERVIEW_SCHEDULED),
+ * ни один реальный deal не сможет попасть на эти этапы — backend просто не
+ * умеет проставить сюда current_stage_id (см. предупреждение в Setup.gs над
+ * wireUpSelfPipelineMapping()). Демо-режим (mockData.js) их уже видит.
  */
 
 export const GROUPS = [
@@ -60,106 +73,161 @@ export const STAGES = [
     id: "CIEE_REGISTRATION",
     group: "ciee",
     order: 2,
-    title: "Регистрация CIEE",
+    title: "Регистрация CIEE готова",
     shortTitle: "Регистрация CIEE",
     actionRequired: true,
     severity: "danger",
     icon: "📩",
-    description: "Мы зарегистрировали вас в CIEE. Активируйте аккаунт по Welcome Email и заполните анкету — на это 5 дней.",
+    description: "Проверьте почту, активируйте аккаунт и заполните анкету в течение 5 дней. Инструкция по заполнению — в приложении.",
     detail: {
       whatsHappening: "ABC Universe зарегистрировала вас в системе CIEE. На указанный email отправлено Welcome Email.",
       whatRequired: "Найдите Welcome Email от CIEE, активируйте аккаунт и заполните анкету, следуя инструкции ABC Universe.",
       whatsNext: "ABC Universe проверит вашу анкету.",
     },
     cta: { label: "Открыть инструкцию", action: "openInstruction" },
-    secondaryCta: { label: "Не пришло письмо?", action: "writeCoordinator" }, instructionUrl: "https://drive.google.com/file/d/1qZyVkZPosrvxXZtkclmO0aaR7mp9YvKi/view?usp=drive_link",
+    // Видео-инструкция по регистрации в CIEE (вставлено 04.09.2026 по
+    // ссылке от владельца). Именно для этого этапа — DS160_STARTED и
+    // VISA_FINAL_CALL ниже используют ту же кнопку/action, но со своим
+    // содержанием, поэтому ссылка живёт здесь, а не в MOCK_INSTRUCTIONS_URL
+    // (actions.js), который иначе применился бы ко всем трём сразу.
+    instructionUrl: "https://drive.google.com/file/d/1qZyVkZPosrvxXZtkclmO0aaR7mp9YvKi/view?usp=drive_link",
+    secondaryCta: { label: "Не пришло письмо?", action: "writeCoordinator" },
     deadlineDays: 5,
   },
-  // ПОРЯДОК ЭТАПОВ CIEE (03.09.2026). Раньше «Проверка анкеты» стояла ПЕРЕД
-  // «Кабинет заполнен», как будто мы проверяем анкету до того, как студент её
-  // заполнил. Реальный процесс обратный: студент заполняет кабинет, и только
-  // потом ABC Universe проверяет анкету. Поиск работодателя при этом идёт
-  // ПАРАЛЛЕЛЬНО проверке — ждать её результата не нужно, поэтому зелёный свет
-  // на поиск даётся уже здесь, а не после проверки.
-  // Порядок на экране определяется полем `order` (см. MAIN_LINE ниже), а не
-  // позицией в массиве, но держим их согласованными, чтобы файл читался как
-  // процесс.
-  {
-    id: "CIEE_FILLED",
-    group: "ciee",
-    order: 3,
-    title: "Личный кабинет CIEE заполнен",
-    shortTitle: "CIEE заполнен",
-    actionRequired: true,
-    severity: "active",
-    icon: "✅",
-    description: "Анкета в личном кабинете CIEE заполнена. Начинайте искать работодателя — ждать проверки не нужно.",
-    detail: {
-      whatsHappening: "Вы заполнили анкету в личном кабинете CIEE. Дальше её проверит ABC Universe.",
-      whatRequired: "Начинайте самостоятельно искать работодателя. Результата проверки анкеты ждать не нужно — она идёт параллельно.",
-      whatsNext: "Когда получите Job Offer, загрузите его — он уйдёт на проверку.",
-    },
-    cta: null,
-  },
+  // ПОРЯДОК ЭТАПОВ CIEE (04.09.2026, ОТМЕНЯЕТ решение от 03.09.2026). Тогда
+  // порядок был исправлен на «кабинет заполнен -> проверка анкеты», потому что
+  // казалось нелогичным проверять анкету раньше, чем студент её заполнил.
+  // Владелец явно подтвердил новый порядок «проверка анкеты -> кабинет
+  // заполнен» (сообщение 04.09.2026, список из 17 этапов новой воронки self) —
+  // возвращаем его сюда таким, каким он и был до 03.09.2026. Поиск
+  // работодателя по-прежнему идёт ПАРАЛЛЕЛЬНО проверке — ждать её не нужно.
   {
     id: "CIEE_ANKETA_REVIEW",
     group: "ciee",
-    order: 4,
-    title: "Проверка анкеты CIEE",
+    order: 3,
+    title: "Проверяем анкету CIEE",
     shortTitle: "Проверка анкеты",
     actionRequired: false,
     severity: "active",
     icon: "🔎",
-    description: "Мы проверяем вашу анкету CIEE. По ней от вас ничего не требуется — продолжайте искать работодателя.",
+    description: "Мы проверяем заполненные данные. Пока продолжайте поиск Job Offer.",
     detail: {
       whatsHappening: "ABC Universe проверяет данные, которые вы указали в анкете CIEE.",
       whatRequired: "По анкете — ничего. Продолжайте искать работодателя.",
-      whatsNext: "Когда получите Job Offer, загрузите его — он уйдёт на проверку.",
+      whatsNext: "Когда анкета будет проверена, начнётся поиск и загрузка Job Offer.",
+    },
+    cta: null,
+  },
+  {
+    id: "CIEE_FILLED",
+    group: "ciee",
+    order: 4,
+    title: "Анкета CIEE проверена",
+    shortTitle: "CIEE проверена",
+    actionRequired: true,
+    severity: "active",
+    icon: "✅",
+    description: "Всё готово! Продолжайте поиск Job Offer. Как только получите офер — сообщите нам.",
+    detail: {
+      whatsHappening: "Анкета в личном кабинете CIEE проверена ABC Universe.",
+      whatRequired: "Продолжайте искать работодателя. Как только получите Job Offer — загрузите его в приложении.",
+      whatsNext: "Job Offer уйдёт на проверку международному представителю, затем в CIEE.",
     },
     cta: null,
   },
 
   // ----------------------------------------------------------------- JOB OFFER
   {
-    id: "JOB_OFFER_UPLOADED",
+    id: "JOB_OFFER_SENT_INTL_REP",
     group: "job_offer",
     order: 5,
-    title: "Job Offer загружен",
-    shortTitle: "Job Offer загружен",
+    title: "Job Offer на проверке",
+    shortTitle: "Job Offer получен",
     actionRequired: false,
     severity: "active",
     icon: "📥",
-    description: "Мы получили ваш Job Offer. ABC Universe начинает проверку документа.",
+    description: "Мы получили ваш офер и проверяем его перед отправкой в CIEE. Пока от вас ничего не требуется.",
     detail: {
-      whatsHappening: "Ваш Job Offer поступил в ABC Universe.",
+      whatsHappening: "Ваш Job Offer поступил в ABC Universe и проверяется международным представителем.",
       whatRequired: "Пока ничего.",
-      whatsNext: "ABC Universe проверит документ перед передачей CIEE (Sponsor).",
+      whatsNext: "После проверки офер будет отправлен спонсору CIEE.",
     },
     cta: null,
   },
   {
-    id: "JOB_OFFER_CIEE_REVIEW",
+    id: "JOB_OFFER_SUBMITTED_CIEE",
     group: "job_offer",
     order: 6,
-    title: "Job Offer на проверке CIEE",
-    shortTitle: "Проверка CIEE",
+    title: "Job Offer передан в CIEE",
+    shortTitle: "Передан в CIEE",
     actionRequired: false,
     severity: "active",
     icon: "🔵",
-    description: "Ваш Job Offer проверен ABC Universe и передан CIEE. Sponsor проводит проверку.",
+    description: "Офер отправлен спонсору. Будьте на связи с работодателем — CIEE может запросить у него дополнительные документы.",
     detail: {
-      whatsHappening: "CIEE (Sponsor) проверяет Job Offer и соответствие требованиям программы.",
+      whatsHappening: "CIEE (Sponsor) получил ваш Job Offer и начинает проверку.",
+      whatRequired: "Будьте на связи с работодателем — CIEE может запросить у него дополнительные документы.",
+      whatsNext: "Работодателю нужно будет подтвердить офер в личном кабинете CIEE.",
+    },
+    cta: null,
+  },
+  {
+    id: "JOB_OFFER_HOST_REVIEW",
+    group: "job_offer",
+    order: 7,
+    title: "Работодателю нужно подтвердить Job Offer",
+    shortTitle: "Host Review",
+    actionRequired: true,
+    severity: "warn",
+    icon: "🏢",
+    description: "Попросите работодателя зайти в личный кабинет CIEE и подписать ваш Job Offer.",
+    detail: {
+      whatsHappening: "CIEE ждёт, когда работодатель (Host) подтвердит условия Job Offer в своём личном кабинете.",
+      whatRequired: "Свяжитесь с работодателем и попросите его зайти в личный кабинет CIEE и подписать офер.",
+      whatsNext: "После подтверждения работодателем офер перейдёт к вам на подпись.",
+    },
+    cta: null,
+  },
+  {
+    id: "JOB_OFFER_PARTICIPANT_REVIEW",
+    group: "job_offer",
+    order: 8,
+    title: "Подтвердите Job Offer",
+    shortTitle: "Ваша подпись",
+    actionRequired: true,
+    severity: "danger",
+    icon: "✍️",
+    description: "Зайдите в личный кабинет CIEE, проверьте условия и подпишите Job Offer.",
+    detail: {
+      whatsHappening: "Работодатель подтвердил Job Offer. Теперь очередь за вами.",
+      whatRequired: "Зайдите в личный кабинет CIEE, внимательно проверьте условия и подпишите Job Offer.",
+      whatsNext: "После вашей подписи офер уйдёт на финальную проверку CIEE.",
+    },
+    cta: null,
+  },
+  {
+    id: "JOB_OFFER_CIEE_FINAL_REVIEW",
+    group: "job_offer",
+    order: 9,
+    title: "Job Offer на финальной проверке",
+    shortTitle: "Финальная проверка",
+    actionRequired: false,
+    severity: "active",
+    icon: "🔵",
+    description: "CIEE проверяет офер после подписания. Пока от вас ничего не требуется.",
+    detail: {
+      whatsHappening: "CIEE проверяет подписанный Job Offer в последний раз перед подтверждением.",
       whatRequired: "Пока ничего.",
-      whatsNext: "После успешной проверки — Placed 🎉. Если найдутся замечания, координатор свяжется с вами.",
+      whatsNext: "После успешной проверки — Job Offer подтверждён 🎉. Если найдутся замечания, координатор свяжется с вами.",
     },
     cta: null,
   },
   {
     id: "JOB_PROBLEM",
     group: "job_offer",
-    order: 6.5,
+    order: 9.5,
     branch: true,
-    branchOf: "JOB_OFFER_CIEE_REVIEW",
+    branchOf: "JOB_OFFER_CIEE_FINAL_REVIEW",
     title: "Требуется ваше внимание",
     shortTitle: "Job Problem",
     actionRequired: true,
@@ -185,21 +253,23 @@ export const STAGES = [
     // «Комментарий координатора» только когда комментарий есть, а что делать,
     // и так написано в detail.whatRequired — связаться с координатором.
     // JOB_PROBLEM — редкий случай, ветка сохранена целиком, убран только
-    // вымышленный текст.
+    // вымышленный текст. branchOf переставлен на JOB_OFFER_CIEE_FINAL_REVIEW
+    // 04.09.2026 вместе с переработкой всей группы job_offer — старого
+    // JOB_OFFER_CIEE_REVIEW, от которого ветка отходила раньше, больше нет.
     cta: { label: "Написать координатору", action: "writeCoordinator" },
     escalationHours: 48,
   },
   {
-    id: "PLACED",
+    id: "PLACEMENT_COMPLETED",
     group: "job_offer",
-    order: 7,
-    title: "YOU'RE PLACED!",
-    shortTitle: "Placed",
+    order: 10,
+    title: "Job Offer подтверждён 🎉",
+    shortTitle: "Placement Completed",
     actionRequired: false,
     severity: "ok",
     icon: "🇺🇸",
     celebration: true,
-    description: "Ваш Job Offer полностью подтверждён CIEE. Один из главных этапов программы завершён.",
+    description: "Офер полностью подтверждён CIEE. Следующий этап — выпуск DS-2019.",
     detail: {
       whatsHappening: "Ваш Job Offer полностью подтверждён CIEE — один из главных этапов программы завершён.",
       whatRequired: "Ничего — можно выдохнуть и отпраздновать 🎉",
@@ -212,14 +282,14 @@ export const STAGES = [
   {
     id: "DS2019_ISSUED",
     group: "ds2019",
-    order: 8,
-    title: "DS-2019 ISSUED",
+    order: 11,
+    title: "DS-2019 готова",
     shortTitle: "DS-2019 issued",
     actionRequired: false,
     severity: "ok",
     icon: "🇺🇸",
     celebration: true,
-    description: "Ваша форма DS-2019 выпущена. Теперь начинается визовый этап.",
+    description: "Документ выпущен! Переходим к визовому этапу — следующий шаг DS-160.",
     detail: {
       whatsHappening: "Sponsor выпустил вашу форму DS-2019.",
       whatRequired: "Ничего — этот шаг пройден.",
@@ -232,13 +302,13 @@ export const STAGES = [
   {
     id: "DS160_STARTED",
     group: "visa",
-    order: 9,
-    title: "DS-160",
+    order: 12,
+    title: "Пора заполнить DS-160",
     shortTitle: "DS-160",
     actionRequired: true,
     severity: "danger",
     icon: "🛂",
-    description: "Заполните форму DS-160 согласно инструкции ABC Universe.",
+    description: "Заполните визовую анкету по инструкции в приложении и отправьте нам на проверку.",
     detail: {
       whatsHappening: "Начался визовый этап программы.",
       whatRequired: "Заполните форму DS-160, следуя инструкции ABC Universe.",
@@ -249,13 +319,13 @@ export const STAGES = [
   {
     id: "DS160_REVIEW",
     group: "visa",
-    order: 10,
-    title: "DS-160 Review",
+    order: 13,
+    title: "Проверяем DS-160",
     shortTitle: "DS-160 Review",
     actionRequired: false,
     severity: "active",
     icon: "🔵",
-    description: "Мы проверяем заполненную форму DS-160 перед подачей.",
+    description: "Мы проверяем анкету перед подачей. Пока от вас ничего не требуется.",
     detail: {
       whatsHappening: "ABC Universe проверяет корректность заполнения DS-160.",
       whatRequired: "Пока ничего — если найдём неточности, сообщим, что исправить.",
@@ -266,13 +336,13 @@ export const STAGES = [
   {
     id: "DS160_SUBMITTED",
     group: "visa",
-    order: 11,
-    title: "DS-160 Submitted",
+    order: 14,
+    title: "DS-160 подана",
     shortTitle: "DS-160 Submitted",
     actionRequired: false,
     severity: "active",
     icon: "🔵",
-    description: "Форма DS-160 подана. Теперь можно записываться на собеседование.",
+    description: "Анкета готова. Теперь можно переходить к записи на визовое интервью.",
     detail: {
       whatsHappening: "Ваша форма DS-160 успешно подана.",
       whatRequired: "Пока ничего.",
@@ -281,15 +351,32 @@ export const STAGES = [
     cta: null,
   },
   {
+    id: "VISA_INTERVIEW_SCHEDULED",
+    group: "visa",
+    order: 15,
+    title: "Визовое интервью назначено 📅",
+    shortTitle: "Интервью назначено",
+    actionRequired: true,
+    severity: "warn",
+    icon: "📅",
+    description: "Дата подтверждена. Проверьте дату и время записи и начинайте подготовку к интервью.",
+    detail: {
+      whatsHappening: "Вам назначена дата визового интервью в посольстве/консульстве США.",
+      whatRequired: "Проверьте дату и время записи и начинайте собирать документы по чек-листу.",
+      whatsNext: "Ближе к дате интервью — Final Call с финальной проверкой готовности.",
+    },
+    cta: null,
+  },
+  {
     id: "VISA_FINAL_CALL",
     group: "visa",
-    order: 12,
-    title: "Final Call перед визой",
+    order: 16,
+    title: "Скоро визовое интервью",
     shortTitle: "Final Call",
     actionRequired: true,
     severity: "danger",
     icon: "📞",
-    description: "Финальная проверка готовности к визовому интервью — сверьте документы и детали записи.",
+    description: "Проверьте дату и время записи и подготовьте документы по чек-листу в приложении.",
     detail: {
       whatsHappening: "Вы записаны на визовое интервью.",
       whatRequired: "Проверьте дату и время интервью, соберите документы по чек-листу.",
@@ -306,20 +393,23 @@ export const STAGES = [
     // пропуска максимальная (интервью в посольстве не переносится по звонку).
     // Дата и обратный отсчёт до интервью на этом же экране показываются
     // по-настоящему — из VisaInfo, см. блок VISA_FINAL_CALL в statusDetail.js.
+    // 04.09.2026: та же карточка VisaInfo теперь показывается и на
+    // VISA_INTERVIEW_SCHEDULED выше — именно там дата становится известна
+    // впервые, Final Call лишь напоминает о ней перед самим интервью.
   },
   {
     id: "PASSPORT_READY",
     group: "visa",
-    order: 13,
-    title: "Ожидаем паспорт",
+    order: 17,
+    title: "Паспорт готов 🎉",
     shortTitle: "Passport",
-    actionRequired: false,
-    severity: "active",
+    actionRequired: true,
+    severity: "warn",
     icon: "📕",
-    description: "Решение по визе принято, паспорт находится в посольстве/консульстве.",
+    description: "Ваш паспорт с визовым решением готов к выдаче. Заберите его и сразу сообщите нам о результате.",
     detail: {
-      whatsHappening: "Ваш паспорт с визой находится на обработке в посольстве/консульстве.",
-      whatRequired: "Пока ничего — мы сообщим, когда паспорт будет готов к получению.",
+      whatsHappening: "Решение по визе принято, паспорт готов к выдаче в посольстве/консульстве.",
+      whatRequired: "Заберите паспорт и сразу сообщите координатору о результате.",
       whatsNext: "Получение паспорта с визой — VISA APPROVE.",
     },
     cta: null,
@@ -327,14 +417,14 @@ export const STAGES = [
   {
     id: "VISA_APPROVED",
     group: "visa",
-    order: 14,
-    title: "VISA APPROVE",
+    order: 18,
+    title: "Виза J-1 одобрена 🎉🇺🇸",
     shortTitle: "Visa Approved",
     actionRequired: true,
     severity: "ok",
     icon: "🇺🇸",
     celebration: true,
-    description: "Ваша J-1 Visa одобрена! Это последний статус в CRM — дальше пройдите чек-лист подготовки к вылету прямо в приложении.",
+    description: "Поздравляем! Переходите к чек-листу подготовки к вылету в приложении.",
     detail: {
       whatsHappening: "Ваша J-1 Visa одобрена — паспорт получен. Это финальный статус сделки в CRM.",
       whatRequired: "Закройте чек-лист подготовки к вылету ниже.",
@@ -393,7 +483,7 @@ export function stageStatus(stageId, currentStageId) {
 
 function findParentOrder(branchStage) {
   // Every branch stage (currently just JOB_PROBLEM) declares branchOf
-  // explicitly — e.g. branchOf: "JOB_OFFER_CIEE_REVIEW" anchors it there for
+  // explicitly — e.g. branchOf: "JOB_OFFER_CIEE_FINAL_REVIEW" anchors it there for
   // done/current/upcoming comparisons, instead of inferring the nearest
   // lower-order stage (which broke the moment a branch's real parent lived
   // in a different group than the branch stage itself).
