@@ -55,13 +55,30 @@ function setProp(key, value) {
  * frontend — the frontend owns all copy/severity/CTA, the backend only ever
  * needs to say WHICH of these the participant is currently on.
  */
+// ПЕРЕСОБРАНО 04.09.2026 под новую воронку self (п. из CLAUDE.md "добавить
+// сделки в воронке self, добавятся этапы и в роадмапе"). Меняется: порядок
+// CIEE_ANKETA_REVIEW/CIEE_FILLED (осознанно, подтверждено владельцем — вернули
+// «проверка анкеты -> кабинет заполнен», это ОТМЕНЯЕТ решение от 03.09.2026);
+// JOB_OFFER_UPLOADED и JOB_OFFER_CIEE_REVIEW заменены на пять новых статусов
+// (Sent to International Representative -> ... -> CIEE Review); PLACED
+// переименован в PLACEMENT_COMPLETED; добавлен VISA_INTERVIEW_SCHEDULED между
+// DS160_SUBMITTED и VISA_FINAL_CALL. JOB_PROBLEM остаётся веткой (branchOf
+// теперь JOB_OFFER_CIEE_FINAL_REVIEW, см. roadmap.config.js).
+//
+// ВАЖНО: эти статусы ЕЩЁ НЕ созданы в воронке self в amoCRM — их только
+// предстоит завести/переставить там (это делает пользователь). Пока это не
+// сделано, STATUS_ID_MAP_JSON нельзя заполнить реальными status_id для новых
+// имён — wireUpSelfPipelineMapping() в Setup.gs хранит карту от 2026-08-23 под
+// СТАРЫЕ имена и требует пересборки после того, как статусы появятся в CRM.
 const STAGE_IDS = [
   "ENROLLED",
-  "CIEE_REGISTRATION", "CIEE_FILLED", "CIEE_ANKETA_REVIEW",
-  "JOB_OFFER_UPLOADED", "JOB_OFFER_CIEE_REVIEW", "JOB_PROBLEM", "PLACED",
+  "CIEE_REGISTRATION", "CIEE_ANKETA_REVIEW", "CIEE_FILLED",
+  "JOB_OFFER_SENT_INTL_REP", "JOB_OFFER_SUBMITTED_CIEE", "JOB_OFFER_HOST_REVIEW",
+  "JOB_OFFER_PARTICIPANT_REVIEW", "JOB_OFFER_CIEE_FINAL_REVIEW", "JOB_PROBLEM",
+  "PLACEMENT_COMPLETED",
   "DS2019_ISSUED",
   "DS160_STARTED", "DS160_REVIEW", "DS160_SUBMITTED",
-  "VISA_FINAL_CALL", "PASSPORT_READY", "VISA_APPROVED",
+  "VISA_INTERVIEW_SCHEDULED", "VISA_FINAL_CALL", "PASSPORT_READY", "VISA_APPROVED",
 ];
 
 /**
@@ -69,7 +86,7 @@ const STAGE_IDS = [
  * listAmoPipelineStatuses() in Setup.gs) → our STAGE_IDS string.
  * Fill this in once your SELF pipeline exists in amoCRM. Kept as a Script
  * Property (JSON string) so it can be edited without redeploying code:
- * Script Properties → STATUS_ID_MAP_JSON → {"12345678":"JOB_OFFER_CIEE_REVIEW", ...}
+ * Script Properties → STATUS_ID_MAP_JSON → {"12345678":"JOB_OFFER_SUBMITTED_CIEE", ...}
  * wireUpSelfPipelineMapping() in Setup.gs, which sets this automatically).
  */
 function getStatusIdMap() {
@@ -101,23 +118,32 @@ function stageIdForAmoStatus(statusId) {
  * Обещаний по визе здесь нет и быть не должно: PASSPORT_READY говорит
  * «решение принято», не называя какое.
  */
+// ПЕРЕПИСАНО 04.09.2026 под новую воронку self (текст прислан владельцем
+// напрямую для всех 17 этапов после ENROLLED, п.5 из CLAUDE.md). Возврат
+// эмодзи-пафоса (🎉, 📅) на нескольких этапах — осознанный: это ТЕ ЖЕ тексты,
+// что и в новом roadmap.config.js, не сухая версия из правки 03.09.2026;
+// ⚠️ по-прежнему только там, где реально нужно действие участника.
 const STAGE_NOTIFY_TEXT = {
   // Про оплату здесь намеренно ни слова: приветственное сообщение не место
-  // для денег. Отдельное уведомление о принятом платеже — в бэклоге, см.
-  // CLAUDE.md; напоминания о СРОКАХ оплаты уже шлёт Reminders.gs.
+  // для денег. Отдельное уведомление о принятом платеже шлёт
+  // notifyPaymentPaid_ (Webhooks.gs); напоминания о СРОКАХ оплаты — Reminders.gs.
   ENROLLED: "<b>Вы в программе</b>\n\nДоговор подписан. В приложении — ваш путь по этапам и список документов.",
-  CIEE_REGISTRATION: "<b>Регистрация в CIEE</b>\n\nМы зарегистрировали вас у спонсора CIEE. На почту пришло Welcome Email — активируйте аккаунт и заполните анкету в течение 5 дней. Инструкция в приложении.",
-  CIEE_FILLED: "<b>Личный кабинет CIEE заполнен</b>\n\nАнкета заполнена, дальше её проверит ABC Universe. Ждать проверки не нужно — начинайте искать работодателя. Когда получите Job Offer, загрузите его в приложении.",
-  CIEE_ANKETA_REVIEW: "<b>Анкета CIEE на проверке</b>\n\nПроверяем данные из анкеты. По ней от вас ничего не требуется — продолжайте искать работодателя.",
-  JOB_OFFER_UPLOADED: "<b>Job Offer получен</b>\n\nABC Universe начал проверку документа. Сейчас от вас ничего не требуется.",
-  JOB_OFFER_CIEE_REVIEW: "<b>Job Offer передан в CIEE</b>\n\nABC Universe проверил документ и передал его спонсору. Проверку проводит CIEE.",
+  CIEE_REGISTRATION: "<b>Регистрация в CIEE готова</b>\n\nПроверьте почту, активируйте аккаунт и заполните анкету в течение 5 дней. Инструкция по заполнению — в приложении.",
+  CIEE_ANKETA_REVIEW: "<b>Проверяем анкету CIEE</b>\n\nМы проверяем заполненные данные. Пока продолжайте поиск Job Offer.",
+  CIEE_FILLED: "<b>Анкета CIEE проверена</b>\n\nВсё готово! Продолжайте поиск Job Offer. Как только получите офер — сообщите нам.",
+  JOB_OFFER_SENT_INTL_REP: "<b>Job Offer на проверке</b>\n\nМы получили ваш офер и проверяем его перед отправкой в CIEE. Пока от вас ничего не требуется.",
+  JOB_OFFER_SUBMITTED_CIEE: "<b>Job Offer передан в CIEE</b>\n\nОфер отправлен спонсору. Будьте на связи с работодателем — CIEE может запросить у него дополнительные документы.",
+  JOB_OFFER_HOST_REVIEW: "<b>Работодателю нужно подтвердить Job Offer</b>\n\nПопросите работодателя зайти в личный кабинет CIEE и подписать ваш Job Offer.",
+  JOB_OFFER_PARTICIPANT_REVIEW: "<b>Подтвердите Job Offer</b>\n\nЗайдите в личный кабинет CIEE, проверьте условия и подпишите Job Offer.",
+  JOB_OFFER_CIEE_FINAL_REVIEW: "<b>Job Offer на финальной проверке</b>\n\nCIEE проверяет офер после подписания. Пока от вас ничего не требуется.",
   JOB_PROBLEM: "⚠️ <b>Нужно ваше внимание</b>\n\nПо вашему Job Offer появились замечания. Откройте приложение — там детали и что нужно сделать.",
-  PLACED: "<b>Job Offer подтверждён</b>\n\nCIEE подтвердил ваш Job Offer. Дальше — выпуск формы DS-2019.",
-  DS2019_ISSUED: "<b>DS-2019 выпущена</b>\n\nНачинается визовый этап. Следующий шаг — форма DS-160.",
-  DS160_STARTED: "<b>Заполните DS-160</b>\n\nЗаполните форму по инструкции ABC Universe — она в приложении.",
-  DS160_REVIEW: "<b>DS-160 на проверке</b>\n\nПроверяем форму перед подачей. Сейчас от вас ничего не требуется.",
-  DS160_SUBMITTED: "<b>DS-160 подана</b>\n\nТеперь можно записываться на визовое интервью.",
-  VISA_FINAL_CALL: "⚠️ <b>Final Call перед интервью</b>\n\nСверьте дату и время записи и соберите документы по чек-листу в приложении.",
-  PASSPORT_READY: "<b>Паспорт в посольстве</b>\n\nРешение по визе принято, паспорт на обработке. Сообщим, когда его можно будет забрать.",
-  VISA_APPROVED: "<b>Виза J-1 одобрена</b>\n\nОткройте приложение и пройдите чек-лист подготовки к вылету.",
+  PLACEMENT_COMPLETED: "<b>Job Offer подтверждён 🎉</b>\n\nОфер полностью подтверждён CIEE. Следующий этап — выпуск DS-2019.",
+  DS2019_ISSUED: "<b>DS-2019 готова</b>\n\nДокумент выпущен! Переходим к визовому этапу — следующий шаг DS-160.",
+  DS160_STARTED: "<b>Пора заполнить DS-160</b>\n\nЗаполните визовую анкету по инструкции в приложении и отправьте нам на проверку.",
+  DS160_REVIEW: "<b>Проверяем DS-160</b>\n\nМы проверяем анкету перед подачей. Пока от вас ничего не требуется.",
+  DS160_SUBMITTED: "<b>DS-160 подана</b>\n\nАнкета готова. Теперь можно переходить к записи на визовое интервью.",
+  VISA_INTERVIEW_SCHEDULED: "<b>Визовое интервью назначено 📅</b>\n\nДата подтверждена. Проверьте дату и время записи и начинайте подготовку к интервью.",
+  VISA_FINAL_CALL: "⚠️ <b>Скоро визовое интервью</b>\n\nПроверьте дату и время записи и подготовьте документы по чек-листу в приложении.",
+  PASSPORT_READY: "<b>Паспорт готов 🎉</b>\n\nВаш паспорт с визовым решением готов к выдаче. Заберите его и сразу сообщите нам о результате.",
+  VISA_APPROVED: "<b>Виза J-1 одобрена 🎉🇺🇸</b>\n\nПоздравляем! Переходите к чек-листу подготовки к вылету в приложении.",
 };

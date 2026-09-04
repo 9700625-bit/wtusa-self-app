@@ -146,6 +146,18 @@ function listAmoPipelineStatuses() {
 }
 
 /**
+ * УСТАРЕЛО ПОД НОВЫЕ STAGE_IDS (04.09.2026) — но трогать эту функцию/карту не
+ * нужно, это исторический снимок того, что реально было прогнано 2026-08-23 и
+ * что реально сейчас лежит в live STATUS_ID_MAP_JSON. STAGE_IDS в Config.gs с
+ * 04.09.2026 другой (CIEE_ANKETA_REVIEW/CIEE_FILLED переставлены,
+ * JOB_OFFER_UPLOADED/JOB_OFFER_CIEE_REVIEW заменены на пять новых статусов,
+ * PLACED -> PLACEMENT_COMPLETED, добавлен VISA_INTERVIEW_SCHEDULED) — но эти
+ * статусы ЕЩЁ НЕ созданы в самой воронке self в amoCRM (это делает
+ * пользователь). Когда появятся: заново прогнать listAmoPipelineStatuses(),
+ * написать НОВУЮ версию этой функции (не редактировать карту ниже — она
+ * отражает то, что реально стоит сейчас) с новыми status_id под новые имена,
+ * и уже её вызвать вручную один раз.
+ *
  * One-off: wires STATUS_ID_MAP_JSON + AMO_PIPELINE_ID Script Properties
  * directly from the real "Сопровождение self" pipeline (id=9881242), pulled
  * via listAmoPipelineStatuses() on 2026-08-23 — no manual copy-pasting of
