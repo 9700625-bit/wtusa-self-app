@@ -27,7 +27,9 @@ export const coordinator = {
 
 // Mutable "current stage" — simulates the amoCRM pipeline stage. Changed only
 // by the demo panel (js/screens/demo.js) to preview every state without a backend.
-export let currentStageId = "JOB_OFFER_CIEE_REVIEW";
+// 04.09.2026: JOB_OFFER_CIEE_REVIEW больше не существует (см. roadmap.config.js) —
+// ближайший по смыслу новый этап, "офер отправлен спонсору", это JOB_OFFER_SUBMITTED_CIEE.
+export let currentStageId = "JOB_OFFER_SUBMITTED_CIEE";
 
 export function setCurrentStageId(id) {
   currentStageId = id;
