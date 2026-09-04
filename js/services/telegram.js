@@ -60,9 +60,9 @@ export function getInitData() {
 /**
  * Parses `?startapp=<param>` (ТЗ §58/§78). Convention: "<type>_<rest>",
  * split only on the FIRST underscore so `rest` can itself contain
- * underscores (stage ids like JOB_OFFER_CIEE_REVIEW) or hyphens (a linking
+ * underscores (stage ids like JOB_OFFER_SUBMITTED_CIEE) or hyphens (a linking
  * token/UUID) safely.
- *   "status_JOB_OFFER_CIEE_REVIEW"     -> {type:"status", rest:"JOB_OFFER_CIEE_REVIEW"}
+ *   "status_JOB_OFFER_SUBMITTED_CIEE"     -> {type:"status", rest:"JOB_OFFER_SUBMITTED_CIEE"}
  *   "link_a1b2c3d4-....-...."          -> {type:"link", rest:"a1b2c3d4-....-...."}
  */
 export function getStartParam() {
