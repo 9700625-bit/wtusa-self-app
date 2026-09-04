@@ -148,7 +148,7 @@ Manage deployments → ✎ → New version), иначе Telegram/amoCRM прод
 Запустите `listAmoPipelineStatuses` — в логах появятся `status_id` каждого
 этапа воронки. Постройте JSON вида
 ```json
-{"12345678":"SPONSOR_REVIEW", "23456789":"ABC_REVIEW", "34567890":"PLACED"}
+{"12345678":"CIEE_REGISTRATION", "23456789":"JOB_OFFER_SUBMITTED_CIEE", "34567890":"PLACEMENT_COMPLETED"}
 ```
 (id этапов должны совпадать со списком `STAGE_IDS` в `Config.gs`, который в
 свою очередь совпадает с `js/config/roadmap.config.js` на фронтенде) и
