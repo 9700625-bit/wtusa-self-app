@@ -147,6 +147,30 @@ const FIXED_PAYMENTS_ = {
   pay_2: { amount: 450, currency: "USD", offsetDays: 30 },
 };
 
+/**
+ * УВЕДОМЛЕНИЕ О ПРИНЯТОМ ПЛАТЕЖЕ (04.09.2026, п.4 из CLAUDE.md).
+ *
+ * Раньше при переводе координатором платежа в «Оплачено» в amoCRM студент
+ * не получал вообще ничего — было только напоминание о СРОКЕ оплаты
+ * (Reminders.gs), а подтверждения самого факта оплаты не существовало.
+ *
+ * Вызывающий код (syncPaymentsFromDeal_ / syncVariablePayment3_) шлёт это
+ * ровно один раз, на переходе "не оплачено"/"просрочено" -> "оплачено":
+ * сравнивает новый status со status, прочитанным из Sheets ДО пересчёта
+ * (existing). Без этой проверки сообщение уходило бы на КАЖДЫЙ вебхук по
+ * сделке, а не только на реальную оплату — amoCRM шлёт вебхук на любое
+ * изменение сделки, не только на смену этого конкретного поля.
+ *
+ * Суммы в тексте намеренно нет — действующее ограничение проекта, см.
+ * комментарий над STAGE_NOTIFY_TEXT в Config.gs.
+ */
+function notifyPaymentPaid_(participant, label) {
+  const text =
+    "✅ <b>Платёж получен</b>\n\nМы отметили «" + label + "» как оплаченный. Спасибо! Актуальный статус всех платежей — в разделе «Оплата» в приложении.";
+  sendTelegramMessage(participant.telegram_id, text);
+  logEvent(participant.telegram_id, "amocrm_webhook", "payment_paid", "", label);
+}
+
 function syncPaymentsFromDeal_(deal, participant) {
   const createdAt = deal.created_at ? new Date(deal.created_at * 1000) : new Date();
 
@@ -160,6 +184,7 @@ function syncPaymentsFromDeal_(deal, participant) {
     const deadline = new Date(createdAt.getTime() + cfg.offsetDays * 24 * 3600 * 1000);
     const rowKey = participant.telegram_id + ":" + payId;
     const existing = findRow("Payments", "pay_row_key", rowKey);
+    const label = "Оплата " + n;
 
     let status, paidDate;
     if (raw.indexOf("Оплачено") !== -1) {
@@ -188,13 +213,17 @@ function syncPaymentsFromDeal_(deal, participant) {
     upsertRow("Payments", "pay_row_key", rowKey, {
       telegram_id: participant.telegram_id,
       pay_id: payId,
-      label: "Оплата " + n,
+      label: label,
       amount: cfg.amount,
       currency: cfg.currency,
       deadline: Utilities.formatDate(deadline, "GMT+5", "yyyy-MM-dd"),
       status: status,
       paid_date: paidDate,
     });
+
+    if (status === "paid" && (!existing || existing.status !== "paid")) {
+      notifyPaymentPaid_(participant, label);
+    }
   });
 
   syncVariablePayment3_(deal, participant);
@@ -215,6 +244,7 @@ function syncVariablePayment3_(deal, participant) {
   const deadline = parseAmoDate_(customFieldValue(deal, deadlineFieldId));
   const rowKey = participant.telegram_id + ":pay_3";
   const existing = findRow("Payments", "pay_row_key", rowKey);
+  const label = "Оплата 3";
 
   let status, paidDate;
   if (raw.indexOf("Оплачено") !== -1) {
@@ -228,13 +258,17 @@ function syncVariablePayment3_(deal, participant) {
   upsertRow("Payments", "pay_row_key", rowKey, {
     telegram_id: participant.telegram_id,
     pay_id: "pay_3",
-    label: "Оплата 3",
+    label: label,
     amount: amount,
     currency: "USD",
     deadline: deadline ? Utilities.formatDate(deadline, "GMT+5", "yyyy-MM-dd") : "",
     status: status,
     paid_date: paidDate,
   });
+
+  if (status === "paid" && (!existing || existing.status !== "paid")) {
+    notifyPaymentPaid_(participant, label);
+  }
 }
 
 /** amoCRM "date" custom fields usually come back as a unix-seconds number;
