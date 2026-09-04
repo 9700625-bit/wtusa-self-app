@@ -10,6 +10,7 @@
 
 import { openExternalLink, openTelegramLink, hapticImpact, showAlert } from "./telegram.js";
 import * as api from "./api.js";
+import { getStage } from "../config/roadmap.config.js";
 
 const MOCK_CIEE_PORTAL_URL = "https://www.ciee.org/participant-login";
 const MOCK_INSTRUCTIONS_URL = "https://abcuniverse.kz/instructions/self";
@@ -20,9 +21,17 @@ export async function runCtaAction(action, meta = {}) {
     case "openCiee":
       openExternalLink(MOCK_CIEE_PORTAL_URL);
       break;
-    case "openInstruction":
-      openExternalLink(MOCK_INSTRUCTIONS_URL);
-      break;
+    case "openInstruction": {
+            // Разным этапам (CIEE_REGISTRATION, DS160_STARTED, VISA_FINAL_CALL)
+            // нужны разные инструкции, а кнопка/action у них общие — поэтому
+            // ссылка сперва ищется per-stage в roadmap.config.js
+            // (stage.instructionUrl) и только если её там нет, берётся общий
+            // мок-плейсхолдер ниже (актуально для этапов, для которых реальную
+            // ссылку ещё не прислали).
+            const stage = meta.stageId ? getStage(meta.stageId) : null;
+            openExternalLink((stage && stage.instructionUrl) || MOCK_INSTRUCTIONS_URL);
+            break;
+    }
     case "writeCoordinator": {
       // Was hard-importing mockData.js directly, so on a live backend every
       // "Написать координатору" button always opened the DEMO coordinator's
