@@ -240,19 +240,30 @@ function syncPaymentsFromDeal_(deal, participant) {
   syncVariablePayment3_(deal, participant);
 }
 
-// Payment 3 varies per student in both amount and deadline — the coordinator
-// fills in both directly on the deal card (FIELD_ID_PAY3_AMOUNT / _DEADLINE),
-// same "Не оплачено"/"Оплачено" dropdown as the others for status. Also
-// quoted in $, paid in tenge at the NBRK rate on the day.
+// Payment 3 varies per student in amount — the coordinator fills that in
+// directly on the deal card (FIELD_ID_PAY3_AMOUNT), same "Не оплачено"/
+// "Оплачено" dropdown as the others for status. Also quoted in $, paid in
+// tenge at the NBRK rate on the day.
+//
+// Дедлайн (09.09.2026, по договору): по умолчанию — через 4 месяца после
+// создания сделки, автоматически, как и у платежей 1/2 (5 и 30 дней). Если
+// у студента индивидуальная договорённость — это исключение, координатор
+// вручную указывает свою дату в FIELD_ID_PAY3_DEADLINE на карточке сделки,
+// и она перекрывает автоматический расчёт.
+const PAY_3_AUTO_DEADLINE_MONTHS_ = 4;
 function syncVariablePayment3_(deal, participant) {
   const statusFieldId = CFG_OPTIONAL("FIELD_ID_PAY3_STATUS", "");
   const amountFieldId = CFG_OPTIONAL("FIELD_ID_PAY3_AMOUNT", "");
   const deadlineFieldId = CFG_OPTIONAL("FIELD_ID_PAY3_DEADLINE", "");
-  if (!statusFieldId || !amountFieldId || !deadlineFieldId) return; // fields not created in amoCRM yet
+  if (!statusFieldId || !amountFieldId) return; // fields not created in amoCRM yet
 
+  const createdAt = deal.created_at ? new Date(deal.created_at * 1000) : new Date();
   const raw = String(customFieldValue(deal, statusFieldId) || "");
   const amount = Number(customFieldValue(deal, amountFieldId) || 0);
-  const deadline = parseAmoDate_(customFieldValue(deal, deadlineFieldId));
+  const manualDeadline = deadlineFieldId ? parseAmoDate_(customFieldValue(deal, deadlineFieldId)) : null;
+  const autoDeadline = new Date(createdAt.getTime());
+  autoDeadline.setMonth(autoDeadline.getMonth() + PAY_3_AUTO_DEADLINE_MONTHS_);
+  const deadline = manualDeadline || autoDeadline;
   const rowKey = participant.telegram_id + ":pay_3";
   const existing = findRow("Payments", "pay_row_key", rowKey);
   const label = "Оплата 3";
