@@ -146,18 +146,6 @@ function listAmoPipelineStatuses() {
 }
 
 /**
- * УСТАРЕЛО ПОД НОВЫЕ STAGE_IDS (04.09.2026) — но трогать эту функцию/карту не
- * нужно, это исторический снимок того, что реально было прогнано 2026-08-23 и
- * что реально сейчас лежит в live STATUS_ID_MAP_JSON. STAGE_IDS в Config.gs с
- * 04.09.2026 другой (CIEE_ANKETA_REVIEW/CIEE_FILLED переставлены,
- * JOB_OFFER_UPLOADED/JOB_OFFER_CIEE_REVIEW заменены на пять новых статусов,
- * PLACED -> PLACEMENT_COMPLETED, добавлен VISA_INTERVIEW_SCHEDULED) — но эти
- * статусы ЕЩЁ НЕ созданы в самой воронке self в amoCRM (это делает
- * пользователь). Когда появятся: заново прогнать listAmoPipelineStatuses(),
- * написать НОВУЮ версию этой функции (не редактировать карту ниже — она
- * отражает то, что реально стоит сейчас) с новыми status_id под новые имена,
- * и уже её вызвать вручную один раз.
- *
  * One-off: wires STATUS_ID_MAP_JSON + AMO_PIPELINE_ID Script Properties
  * directly from the real "Сопровождение self" pipeline (id=9881242), pulled
  * via listAmoPipelineStatuses() on 2026-08-23 — no manual copy-pasting of
@@ -255,38 +243,4 @@ function fixStaleDocumentRows_(telegramId) {
 /** Run this one from the editor (function dropdown → fixDocuments_1077767749 → Run). */
 function fixDocuments_1077767749() {
   fixStaleDocumentRows_("1077767749");
-}
-
-/**
- * Пересборка STATUS_ID_MAP_JSON под новую воронку self (04.09.2026).
- * Реальные status_id взяты из zzAuditSelfPipeline() после того, как новые
- * статусы были заведены/переставлены в amoCRM в этот же день. Карта в
- * wireUpSelfPipelineMapping() выше НЕ трогается — это исторический снимок
- * от 2026-08-23. Одноразовый вызов вручную из редактора, как и она.
- */
-function wireUpSelfPipelineMapping2() {
-  const map = {
-    "78553950": "ENROLLED",
-    "79035314": "CIEE_REGISTRATION",
-    "87245618": "CIEE_ANKETA_REVIEW",
-    "78615418": "CIEE_FILLED",
-    "78615422": "JOB_OFFER_SENT_INTL_REP",
-    "88370982": "JOB_OFFER_SUBMITTED_CIEE",
-    "88370986": "JOB_OFFER_HOST_REVIEW",
-    "88370990": "JOB_OFFER_PARTICIPANT_REVIEW",
-    "78615426": "JOB_OFFER_CIEE_FINAL_REVIEW",
-    "83521190": "JOB_PROBLEM",
-    "78615430": "PLACEMENT_COMPLETED",
-    "78615438": "DS2019_ISSUED",
-    "78615442": "DS160_STARTED",
-    "87247222": "DS160_REVIEW",
-    "87247350": "DS160_SUBMITTED",
-    "88370994": "VISA_INTERVIEW_SCHEDULED",
-    "83069410": "VISA_FINAL_CALL",
-    "83233450": "PASSPORT_READY",
-    "83238730": "VISA_APPROVED",
-  };
-  setProp("STATUS_ID_MAP_JSON", JSON.stringify(map));
-  setProp("AMO_PIPELINE_ID", "9881242");
-  Logger.log("STATUS_ID_MAP_JSON set with " + Object.keys(map).length + " entries.");
 }

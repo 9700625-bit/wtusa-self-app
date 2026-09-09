@@ -110,6 +110,19 @@ function syncDealToSheets(dealId) {
         (previous && previous.ciee_registration_date) ||
         fieldGet("FIELD_ID_CIEE_REG_DATE") ||
         (newStageId === "CIEE_REGISTRATION" ? Utilities.formatDate(new Date(), "GMT+5", "yyyy-MM-dd") : ""),
+      // РЕАЛЬНАЯ ПРИЧИНА "ТРЕБУЮТСЯ ИСПРАВЛЕНИЯ" ПО JOB OFFER (08.09.2026).
+      //
+      // До этого поле stage.coordinatorComment на JOB_PROBLEM было пустой
+      // веткой: рендер в statusDetail.js существовал, но подставлять в него
+      // было нечего, и раньше здесь был вымышленный текст "Работодателю
+      // необходимо исправить даты работы" — один и тот же для всех, убран
+      // 03.09.2026 (см. CLAUDE.md). Источник появился только теперь: новое
+      // текстовое поле сделки в amoCRM (FIELD_ID_JOB_PROBLEM_COMMENT),
+      // координатор пишет туда причину сам, когда переводит сделку в статус
+      // Job Problem. Синкается сюда так же, как season/program — при
+      // отсутствии значения в amoCRM (ещё не написали) не затираем то, что
+      // уже было записано раньше.
+      job_problem_comment: fieldGet("FIELD_ID_JOB_PROBLEM_COMMENT") || (previous && previous.job_problem_comment) || "",
       last_synced_at: new Date(),
     });
 
@@ -150,7 +163,7 @@ const FIXED_PAYMENTS_ = {
 /**
  * УВЕДОМЛЕНИЕ О ПРИНЯТОМ ПЛАТЕЖЕ (04.09.2026, п.4 из CLAUDE.md).
  *
- * Раньше при переводе координатором платежа в «Оплачено» в amoCRM студент
+ * Раньше при переводе координатором платежа в «Оплачено» в амоCRM студент
  * не получал вообще ничего — было только напоминание о СРОКЕ оплаты
  * (Reminders.gs), а подтверждения самого факта оплаты не существовало.
  *
@@ -158,7 +171,7 @@ const FIXED_PAYMENTS_ = {
  * ровно один раз, на переходе "не оплачено"/"просрочено" -> "оплачено":
  * сравнивает новый status со status, прочитанным из Sheets ДО пересчёта
  * (existing). Без этой проверки сообщение уходило бы на КАЖДЫЙ вебхук по
- * сделке, а не только на реальную оплату — amoCRM шлёт вебхук на любое
+ * сделке, а не только на реальную оплату — амоCRM шлёт вебхук на любое
  * изменение сделки, не только на смену этого конкретного поля.
  *
  * Суммы в тексте намеренно нет — действующее ограничение проекта, см.
@@ -170,7 +183,6 @@ function notifyPaymentPaid_(participant, label) {
   sendTelegramMessage(participant.telegram_id, text);
   logEvent(participant.telegram_id, "amocrm_webhook", "payment_paid", "", label);
 }
-
 function syncPaymentsFromDeal_(deal, participant) {
   const createdAt = deal.created_at ? new Date(deal.created_at * 1000) : new Date();
 
@@ -220,7 +232,6 @@ function syncPaymentsFromDeal_(deal, participant) {
       status: status,
       paid_date: paidDate,
     });
-
     if (status === "paid" && (!existing || existing.status !== "paid")) {
       notifyPaymentPaid_(participant, label);
     }
@@ -265,7 +276,6 @@ function syncVariablePayment3_(deal, participant) {
     status: status,
     paid_date: paidDate,
   });
-
   if (status === "paid" && (!existing || existing.status !== "paid")) {
     notifyPaymentPaid_(participant, label);
   }

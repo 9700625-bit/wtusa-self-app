@@ -231,6 +231,11 @@ function stateForUser_(telegramUser) {
       // the real date lets deriveStageDetail() compute the same real
       // countdown client-side (see js/services/deriveViews.js).
       cieeRegistrationDate: participantRow.ciee_registration_date ? formatSheetDate_(participantRow.ciee_registration_date) : null,
+      // Реальная причина "требуются исправления" по Job Offer (08.09.2026,
+      // см. Webhooks.gs) — координатор пишет её в amoCRM, синкается сюда как
+      // есть. null, а не "", когда пусто: deriveStageDetail на фронтенде
+      // проверяет именно truthy-значение перед тем как показать карточку.
+      jobProblemComment: participantRow.job_problem_comment || null,
     },
     coordinator: {
       name: participantRow.coordinator_name || CFG_OPTIONAL("DEFAULT_COORDINATOR_NAME", ""),
