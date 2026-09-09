@@ -125,6 +125,19 @@ export function deriveStageDetail(state, stageId) {
     stage.cieeDaysRemaining = daysUntil(deadlineIso);
   }
 
+  // JOB_PROBLEM's "Комментарий координатора" card used to have nothing behind
+  // it -- roadmap.config.js's coordinatorComment field was emptied 03.09.2026
+  // because it was hardcoded placeholder text, not something a coordinator
+  // actually wrote (see the comment left there). Now the backend carries a
+  // real per-participant value (Api.gs's stateForUser_ -> jobProblemComment,
+  // synced from an amoCRM field by Webhooks.gs, 08.09.2026): surface it here
+  // exactly like cieeDaysRemaining above, and only when there's real text --
+  // statusDetail.js's card only renders when stage.coordinatorComment is
+  // truthy, so leaving it unset when empty is what keeps the card hidden.
+  if (stageId === "JOB_PROBLEM" && state.participant && state.participant.jobProblemComment) {
+    stage.coordinatorComment = state.participant.jobProblemComment;
+  }
+
   return {
     stage,
     status: stageStatus(stageId, state.currentStageId),
