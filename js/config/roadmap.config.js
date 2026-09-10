@@ -3,40 +3,44 @@
  * CTAs and ordering. Mirrors ТЗ §53 (SELF pipeline) and §54/§73 (config-driven
  * mapping). Every `id` below corresponds 1:1 to a real amoCRM status in the
  * "Сопровождение self" pipeline (id=9881242) — pulled via listAmoPipelineStatuses()
- * (Setup.gs) on 2026-08-23. Do NOT add a stage here unless a matching amoCRM
- * status actually exists — a stage with no real status can never be reached,
- * because nothing on the backend can ever set current_stage_id to it.
+ * (Setup.gs), last re-verified live on 2026-09-10. Do NOT add a stage here unless
+ * a matching amoCRM status actually exists — a stage with no real status can
+ * never be reached, because nothing on the backend can ever set current_stage_id
+ * to it.
  *
  * Two things intentionally do NOT appear as stages, by design:
- *   - Briefings (Welcome + up to 4 more) run in PARALLEL with these CRM
- *     stages, not as steps in the linear path — see "Мои мероприятия"
- *     (js/screens/events.js) and Events.gs. A briefing CAN still be tied to
- *     one of these stages via Events.roadmap_stage_id for the few that
- *     should visually gate progress; most shouldn't.
- *   - Pre-Departure checklist / Ready-to-fly / USA: amoCRM has no status
- *     after "VISA APPROVE" (the deal is simply won from there), so that
- *     whole tail is folded into VISA_APPROVED's own detail screen instead
- *     of being separate stages nothing could ever move a deal into.
+ * - Briefings (Welcome + up to 4 more) run in PARALLEL with these CRM
+ *   stages, not as steps in the linear path — see "Мои мероприятия"
+ *   (js/screens/events.js) and Events.gs. A briefing CAN still be tied to
+ *   one of these stages via Events.roadmap_stage_id for the few that
+ *   should visually gate progress; most shouldn't.
+ * - Pre-Departure checklist / Ready-to-fly / USA: amoCRM has no status
+ *   after "VISA APPROVE" (the deal is simply won from there), so that
+ *   whole tail is folded into VISA_APPROVED's own detail screen instead
+ *   of being separate stages nothing could ever move a deal into.
  *
  * severity: 'ok' | 'active' | 'wait' | 'warn' | 'danger'
- *   ok      — completed (🟢)
- *   active  — processing, current, no action needed (🔵)
- *   wait    — upcoming, not started yet (⚪️)
- *   warn    — attention / deadline approaching (🟡)
- *   danger  — action required / problem (🔴)
+ *   ok     — completed (🟢)
+ *   active — processing, current, no action needed (🔵)
+ *   wait   — upcoming, not started yet (⚪️)
+ *   warn   — attention / deadline approaching (🟡)
+ *   danger — action required / problem (🔴)
  *
- * ИСКЛЮЧЕНИЕ ИЗ ПРАВИЛА ВЫШЕ (04.09.2026). Job Offer и Visa группы ниже
- * переписаны под новую воронку self (CLAUDE.md, п. "добавить сделки в
- * воронке self"), но эти статусы В AMOCRM ЕЩЁ НЕ СОЗДАНЫ — пользователь
- * только планирует их завести/переставить там. Это единственный момент в
- * истории файла, когда стадия добавлена ДО существования статуса в CRM.
- * Последствие: пока STATUS_ID_MAP_JSON не обновлён реальными status_id для
- * новых имён (JOB_OFFER_SENT_INTL_REP, JOB_OFFER_SUBMITTED_CIEE,
- * JOB_OFFER_HOST_REVIEW, JOB_OFFER_PARTICIPANT_REVIEW,
- * JOB_OFFER_CIEE_FINAL_REVIEW, PLACEMENT_COMPLETED, VISA_INTERVIEW_SCHEDULED),
- * ни один реальный deal не сможет попасть на эти этапы — backend просто не
- * умеет проставить сюда current_stage_id (см. предупреждение в Setup.gs над
- * wireUpSelfPipelineMapping()). Демо-режим (mockData.js) их уже видит.
+ * 2026-09-10: the 04.09.2026 job_offer/visa restructuring below (new ids
+ * JOB_OFFER_SENT_INTL_REP, JOB_OFFER_SUBMITTED_CIEE, JOB_OFFER_HOST_REVIEW,
+ * JOB_OFFER_PARTICIPANT_REVIEW, JOB_OFFER_CIEE_FINAL_REVIEW,
+ * PLACEMENT_COMPLETED, VISA_INTERVIEW_SCHEDULED) is now CONFIRMED live in
+ * amoCRM — re-ran listAmoPipelineStatuses() and updated STATUS_ID_MAP_JSON
+ * (Setup.gs, wireUpSelfPipelineMapping()) with the real status_ids. A new
+ * SUBMIT_TO_CIEE stage/status was also added this session, between
+ * PLACEMENT_COMPLETED and DS2019_ISSUED. This is no longer a
+ * demo-mode-only exception — every id below has a real, mapped amoCRM status.
+ *
+ * Copy pass 2026-09-10 (owner-approved edits, whole file reviewed message by
+ * message): ENROLLED description rewritten to be celebratory (not payment-
+ * tied); several Job Offer / Visa descriptions reworded for clarity;
+ * JOB_OFFER_PARTICIPANT_REVIEW renamed to "Participant review" with
+ * severity escalated to danger; new SUBMIT_TO_CIEE stage added.
  */
 
 export const GROUPS = [
@@ -59,7 +63,11 @@ export const STAGES = [
     actionRequired: false,
     severity: "ok",
     icon: "📄",
-    description: "Договор подписан, стартовые документы и Payment #1 приняты — вы официально в программе SELF.",
+    // 2026-09-10: было завязано на оплату ("Payment #1 приняты"). Владелец
+    // явно попросил убрать эту привязку — оформились не значит оплатили,
+    // это просто вступление в программу. Текст теперь празднующий, без
+    // упоминания денег.
+    description: "Поздравляем со вступлением в программу Work & Travel USA SELF — это первый шаг на пути к лету вашей мечты! 🎉",
     detail: {
       whatsHappening: "Вы официально стали участником программы Work & Travel USA SELF 2027.",
       whatRequired: "Ничего — этот шаг уже пройден.",
@@ -87,8 +95,7 @@ export const STAGES = [
     cta: { label: "Открыть инструкцию", action: "openInstruction" },
     // Видео-инструкция по регистрации в CIEE (вставлено 04.09.2026 по
     // ссылке от владельца). Именно для этого этапа — DS160_STARTED и
-    // VISA_FINAL_CALL ниже используют ту же кнопку/action, но со своим
-    // содержанием, поэтому ссылка живёт здесь, а не в MOCK_INSTRUCTIONS_URL
+    // VISA_FINAL_CALL ниже используют ту же кнопку/action, но со своим    // содержанием, поэтому ссылка живёт здесь, а не в MOCK_INSTRUCTIONS_URL
     // (actions.js), который иначе применился бы ко всем трём сразу.
     instructionUrl: "https://drive.google.com/file/d/1qZyVkZPosrvxXZtkclmO0aaR7mp9YvKi/view?usp=drive_link",
     secondaryCta: { label: "Не пришло письмо?", action: "writeCoordinator" },
@@ -98,9 +105,10 @@ export const STAGES = [
   // порядок был исправлен на «кабинет заполнен -> проверка анкеты», потому что
   // казалось нелогичным проверять анкету раньше, чем студент её заполнил.
   // Владелец явно подтвердил новый порядок «проверка анкеты -> кабинет
-  // заполнен» (сообщение 04.09.2026, список из 17 этапов новой воронки self) —
-  // возвращаем его сюда таким, каким он и был до 03.09.2026. Поиск
-  // работодателя по-прежнему идёт ПАРАЛЛЕЛЬНО проверке — ждать её не нужно.
+  // заполнен» (сообщение 04.09.2026, список из 17 этапов новой воронки self,
+  // и повторно подтверждено 2026-09-10) — возвращаем его сюда таким, каким он
+  // и был до 03.09.2026. Поиск работодателя по-прежнему идёт ПАРАЛЛЕЛЬНО
+  // проверке — ждать её не нужно.
   {
     id: "CIEE_ANKETA_REVIEW",
     group: "ciee",
@@ -127,12 +135,18 @@ export const STAGES = [
     actionRequired: true,
     severity: "active",
     icon: "✅",
-    description: "Всё готово! Продолжайте поиск Job Offer. Как только получите офер — сообщите нам.",
+    // 2026-09-10: текст по формулировке владельца.
+    description: "Анкета в личном кабинете CIEE заполнена. Как только найдёте офер — свяжитесь с нами.",
     detail: {
       whatsHappening: "Анкета в личном кабинете CIEE проверена ABC Universe.",
       whatRequired: "Продолжайте искать работодателя. Как только получите Job Offer — загрузите его в приложении.",
       whatsNext: "Job Offer уйдёт на проверку международному представителю, затем в CIEE.",
     },
+    // Владелец попросил кнопку-инструкцию «Как загрузить офер в кабинете»,
+    // но ссылку пришлёт отдельно позже — пока не добавляем нерабочую кнопку.
+    // Когда ссылка придёт: cta: { label: "Как загрузить офер в кабинете",
+    // action: "openInstruction" } + instructionUrl (см. паттерн у
+    // CIEE_REGISTRATION выше).
     cta: null,
   },
 
@@ -146,7 +160,7 @@ export const STAGES = [
     actionRequired: false,
     severity: "active",
     icon: "📥",
-    description: "Мы получили ваш офер и проверяем его перед отправкой в CIEE. Пока от вас ничего не требуется.",
+    description: "Ваш Job Offer загружен и скоро будет отправлен на проверку спонсору. От вас ничего не требуется.",
     detail: {
       whatsHappening: "Ваш Job Offer поступил в ABC Universe и проверяется международным представителем.",
       whatRequired: "Пока ничего.",
@@ -163,7 +177,7 @@ export const STAGES = [
     actionRequired: false,
     severity: "active",
     icon: "🔵",
-    description: "Офер отправлен спонсору. Будьте на связи с работодателем — CIEE может запросить у него дополнительные документы.",
+    description: "Спонсор CIEE начал проверку вашего офера. Теперь ваш работодатель должен предоставить документы, которые у него запросит спонсор.",
     detail: {
       whatsHappening: "CIEE (Sponsor) получил ваш Job Offer и начинает проверку.",
       whatRequired: "Будьте на связи с работодателем — CIEE может запросить у него дополнительные документы.",
@@ -180,10 +194,10 @@ export const STAGES = [
     actionRequired: true,
     severity: "warn",
     icon: "🏢",
-    description: "Попросите работодателя зайти в личный кабинет CIEE и подписать ваш Job Offer.",
+    description: "Ваш работодатель должен зайти в личный кабинет CIEE Beacon и принять вас.",
     detail: {
       whatsHappening: "CIEE ждёт, когда работодатель (Host) подтвердит условия Job Offer в своём личном кабинете.",
-      whatRequired: "Свяжитесь с работодателем и попросите его зайти в личный кабинет CIEE и подписать офер.",
+      whatRequired: "Свяжитесь с работодателем и попросите его зайти в личный кабинет CIEE Beacon и принять вас.",
       whatsNext: "После подтверждения работодателем офер перейдёт к вам на подпись.",
     },
     cta: null,
@@ -193,14 +207,16 @@ export const STAGES = [
     group: "job_offer",
     order: 8,
     title: "Подтвердите Job Offer",
-    shortTitle: "Ваша подпись",
-    actionRequired: true,
-    severity: "danger",
+    // 2026-09-10: переименовано по просьбе владельца ("Ваша подпись" ->
+    // "Participant review"), severity поднят до danger (владелец выбрал
+    // "требует действия" при уточнении).
+    shortTitle: "Participant review",
+    actionRequired: true,    severity: "danger",
     icon: "✍️",
-    description: "Зайдите в личный кабинет CIEE, проверьте условия и подпишите Job Offer.",
+    description: "Вам нужно зайти в личный кабинет, проверить все данные и принять офер. Обратите внимание на даты работы — после принятия изменить их будет невозможно.",
     detail: {
       whatsHappening: "Работодатель подтвердил Job Offer. Теперь очередь за вами.",
-      whatRequired: "Зайдите в личный кабинет CIEE, внимательно проверьте условия и подпишите Job Offer.",
+      whatRequired: "Зайдите в личный кабинет CIEE, внимательно проверьте условия (особенно даты работы) и подпишите Job Offer.",
       whatsNext: "После вашей подписи офер уйдёт на финальную проверку CIEE.",
     },
     cta: null,
@@ -269,11 +285,32 @@ export const STAGES = [
     severity: "ok",
     icon: "🇺🇸",
     celebration: true,
-    description: "Офер полностью подтверждён CIEE. Следующий этап — выпуск DS-2019.",
+    description: "Офер полностью подтверждён CIEE. Следующий этап — отправка документов в CIEE для выпуска DS-2019.",
     detail: {
       whatsHappening: "Ваш Job Offer полностью подтверждён CIEE — один из главных этапов программы завершён.",
       whatRequired: "Ничего — можно выдохнуть и отпраздновать 🎉",
-      whatsNext: "DS-2019: ABC Universe соберёт и передаст Sponsor необходимые документы.",
+      whatsNext: "ABC Universe соберёт и передаст Sponsor необходимые документы для выпуска DS-2019.",
+    },
+    cta: null,
+  },
+  // НОВЫЙ ЭТАП (добавлен 2026-09-10 вместе с одноимённой колонкой в amoCRM,
+  // между Placement Completed и DS-2019 Issued). Раньше отправка документов
+  // в CIEE была "невидимым" шагом внутри PLACEMENT_COMPLETED -> DS2019_ISSUED;
+  // владелец попросил выделить его в отдельный этап роадмапа.
+  {
+    id: "SUBMIT_TO_CIEE",
+    group: "ds2019",
+    order: 10.5,
+    title: "Документы отправлены в CIEE",
+    shortTitle: "Submit to CIEE",
+    actionRequired: false,
+    severity: "active",
+    icon: "📤",
+    description: "Все ваши документы отправлены в CIEE — Sponsor занимается выпуском формы DS-2019, официального документа, подтверждающего ваше участие в программе.",
+    detail: {
+      whatsHappening: "ABC Universe передала все необходимые документы спонсору CIEE.",
+      whatRequired: "Пока ничего.",
+      whatsNext: "Sponsor выпустит форму DS-2019 — после этого начнётся визовый этап.",
     },
     cta: null,
   },
@@ -285,11 +322,10 @@ export const STAGES = [
     order: 11,
     title: "DS-2019 готова",
     shortTitle: "DS-2019 issued",
-    actionRequired: false,
-    severity: "ok",
+    actionRequired: false,    severity: "ok",
     icon: "🇺🇸",
     celebration: true,
-    description: "Документ выпущен! Переходим к визовому этапу — следующий шаг DS-160.",
+    description: "Отличные новости — ваша форма DS-2019 готова! Это официальный документ вашего участия в программе, и с этого момента начинается визовый этап.",
     detail: {
       whatsHappening: "Sponsor выпустил вашу форму DS-2019.",
       whatRequired: "Ничего — этот шаг пройден.",
@@ -314,6 +350,9 @@ export const STAGES = [
       whatRequired: "Заполните форму DS-160, следуя инструкции ABC Universe.",
       whatsNext: "После заполнения ABC Universe проверит форму перед подачей.",
     },
+    // Ссылка на инструкцию/видео по DS-160 — пришлёт владелец позже (как и
+    // instructionUrl для CIEE_FILLED выше). До этого кнопка есть, но ведёт
+    // на общий MOCK_INSTRUCTIONS_URL (actions.js).
     cta: { label: "Открыть инструкцию", action: "openInstruction" },
   },
   {
@@ -359,7 +398,7 @@ export const STAGES = [
     actionRequired: true,
     severity: "warn",
     icon: "📅",
-    description: "Дата подтверждена. Проверьте дату и время записи и начинайте подготовку к интервью.",
+    description: "Поздравляем — ваше визовое интервью назначено! Скоро с вами свяжется координатор и расскажет все детали.",
     detail: {
       whatsHappening: "Вам назначена дата визового интервью в посольстве/консульстве США.",
       whatRequired: "Проверьте дату и время записи и начинайте собирать документы по чек-листу.",
@@ -376,7 +415,7 @@ export const STAGES = [
     actionRequired: true,
     severity: "danger",
     icon: "📞",
-    description: "Проверьте дату и время записи и подготовьте документы по чек-листу в приложении.",
+    description: "Напоминаем про визовое интервью — проверьте все документы и свою подготовку. Если остались вопросы — задайте их своему координатору.",
     detail: {
       whatsHappening: "Вы записаны на визовое интервью.",
       whatRequired: "Проверьте дату и время интервью, соберите документы по чек-листу.",
@@ -405,8 +444,7 @@ export const STAGES = [
     shortTitle: "Passport",
     actionRequired: true,
     severity: "warn",
-    icon: "📕",
-    description: "Ваш паспорт с визовым решением готов к выдаче. Заберите его и сразу сообщите нам о результате.",
+    icon: "📕",    description: "Ваш паспорт с визовым решением готов! Сообщите нам о результате визы, как только его получите.",
     detail: {
       whatsHappening: "Решение по визе принято, паспорт готов к выдаче в посольстве/консульстве.",
       whatRequired: "Заберите паспорт и сразу сообщите координатору о результате.",
@@ -424,7 +462,7 @@ export const STAGES = [
     severity: "ok",
     icon: "🇺🇸",
     celebration: true,
-    description: "Поздравляем! Переходите к чек-листу подготовки к вылету в приложении.",
+    description: "Поздравляем — вы прошли этот путь! Ваша J-1 Visa одобрена 🎉 ABC Universe желает вам прекрасного лета, незабываемых эмоций, новых друзей и ярких впечатлений. Пора собирать чемодан — чек-лист к вылету ждёт ниже.",
     detail: {
       whatsHappening: "Ваша J-1 Visa одобрена — паспорт получен. Это финальный статус сделки в CRM.",
       whatRequired: "Закройте чек-лист подготовки к вылету ниже.",
