@@ -22,7 +22,7 @@ export async function runCtaAction(action, meta = {}) {
       openExternalLink(MOCK_CIEE_PORTAL_URL);
       break;
     case "openInstruction": {
-            // Разным этапам (CIEE_REGISTRATION, DS160_STARTED, VISA_FINAL_CALL)
+            // Разным этапам (CIEE_REGISTRATION, DS160_STARTED)
             // нужны разные инструкции, а кнопка/action у них общие — поэтому
             // ссылка сперва ищется per-stage в roadmap.config.js
             // (stage.instructionUrl) и только если её там нет, берётся общий
@@ -58,6 +58,13 @@ export async function runCtaAction(action, meta = {}) {
       // In-app navigation (e.g. Pre-Departure checklist lives on its own
       // Status Detail screen, not an external link).
       window.location.hash = `status/${meta.stageId || "VISA_APPROVED"}`;
+      break;
+    case "confirmVisaReady":
+      // Final Call — студент подтверждает готовность к визовому интервью; бэкенд
+      // ставит координатору задачу в amoCRM (confirmVisaReady_ в Api.gs) и сам следит,
+      // чтобы повторное нажатие не создавало вторую задачу.
+      await api.confirmVisaReady();
+      showAlert("Готово! Мы передали координатору, что вы готовы к визовому интервью.");
       break;
     default:
       console.warn("[actions] unknown CTA action:", action);
