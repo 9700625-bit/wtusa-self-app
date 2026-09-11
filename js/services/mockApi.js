@@ -88,6 +88,12 @@ export function postSupport(message) {
     return delay({ ok: true });
 }
 
+/** POST /confirmVisaReady — Final Call: студент подтверждает готовность к интервью */
+export function confirmVisaReady() {
+    db.participant.visaReadyConfirmed = true;
+    return delay({ ok: true });
+}
+
 /** GET /pre-departure-checklist (extension of §31, not in §61 list but needed for that screen) */
 export function getPreDepartureChecklist() {
     return delay(clone(db.preDepartureChecklist));
