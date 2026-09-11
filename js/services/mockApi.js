@@ -1,5 +1,5 @@
 /**
- * Mock API layer — mirrors the endpoint contract from ТЗ §61
+ * Mock API layer — mirrors the endpoint contract from T3 §61
  * (GET /me, /dashboard, /roadmap, /documents, POST /documents/upload,
  * GET /payments, /briefings, POST /support).
  *
@@ -93,6 +93,12 @@ export function confirmVisaReady() {
     db.participant.visaReadyConfirmed = true;
     return delay({ ok: true });
 }
+
+/** POST /confirmJobOffer — CIEE_FILLED: студент сообщает, что нашёл офер */
+export function confirmJobOffer() {
+    db.participant.jobOfferReadyConfirmed = true;
+    return delay({ ok: true });
+    
 
 /** GET /pre-departure-checklist (extension of §31, not in §61 list but needed for that screen) */
 export function getPreDepartureChecklist() {
