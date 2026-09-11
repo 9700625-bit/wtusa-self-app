@@ -41,6 +41,9 @@ export function getBriefings() {
 export function postSupport(message) {
     return backend().postSupport(message);
 }
+export function confirmVisaReady() {
+    return backend().confirmVisaReady();
+}
 export function getPreDepartureChecklist() {
     return backend().getPreDepartureChecklist();
 }
