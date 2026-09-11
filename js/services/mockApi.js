@@ -98,6 +98,7 @@ export function confirmVisaReady() {
 export function confirmJobOffer() {
     db.participant.jobOfferReadyConfirmed = true;
     return delay({ ok: true });
+}
     
 
 /** GET /pre-departure-checklist (extension of §31, not in §61 list but needed for that screen) */
