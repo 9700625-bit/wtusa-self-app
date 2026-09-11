@@ -12,6 +12,7 @@ const SHEET_SCHEMA = {
     "current_stage_id", "ciee_registration_date",
     "ciee_reminder_2d_sent", "ciee_reminder_1d_sent", "ciee_reminder_0d_sent", "ciee_escalated",
     "last_synced_at", "last_activity", "created_at",
+    "visa_ready_confirmed",
   ],
   // Looked up by Webhooks.gs (coordinatorForUserId_) via amoCRM's numeric
   // "Ответственный" (responsible_user_id) on every deal sync, to fill in
