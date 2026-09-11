@@ -44,6 +44,9 @@ export function postSupport(message) {
 export function confirmVisaReady() {
     return backend().confirmVisaReady();
 }
+export function confirmJobOffer() {
+    return backend().confirmJobOffer();
+}
 export function getPreDepartureChecklist() {
     return backend().getPreDepartureChecklist();
 }
