@@ -108,9 +108,27 @@ export async function render(container) {
     window.location.hash = "roadmap";
   });
 
-  container.querySelectorAll("[data-cta]").forEach((btn) => {
-    btn.addEventListener("click", () => runCtaAction(btn.dataset.cta, { stageId: action.stageId }));
+container.querySelectorAll("[data-cta]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    // Final Call — см. такой же комментарий в statusDetail.js: одноразовая кнопка,
+    // блокируем её сразу, чтобы не ушло вторым запросом.
+    if (btn.dataset.cta === "confirmVisaReady") {
+      if (btn.disabled) return;
+      const original = btn.textContent;
+      btn.disabled = true;
+      try {
+        await runCtaAction(btn.dataset.cta, { stageId: action.stageId });
+        btn.textContent = "Подтверждено ✅";
+      } catch (err) {
+        console.error("[home] confirmVisaReady failed:", err);
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+      return;
+    }
+    runCtaAction(btn.dataset.cta, { stageId: action.stageId });
   });
+});
 
   container.querySelectorAll("[data-route]").forEach((el) => {
     el.addEventListener("click", () => {
