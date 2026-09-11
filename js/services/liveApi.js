@@ -161,6 +161,12 @@ export async function confirmVisaReady() {
     return result;
 }
 
+export async function confirmJobOffer() {
+    const result = await apiPost("confirmJobOffer", {});
+    invalidateState();
+    return result;
+}
+
 export async function getPreDepartureChecklist() {
     const state = await getState();
     return state.preDepartureChecklist;
