@@ -351,10 +351,8 @@ export const STAGES = [
       whatRequired: "Заполните форму DS-160, следуя инструкции ABC Universe.",
       whatsNext: "После заполнения ABC Universe проверит форму перед подачей.",
     },
-    // Ссылка на инструкцию/видео по DS-160 — пришлёт владелец позже (как и
-    // instructionUrl для CIEE_FILLED выше). До этого кнопка есть, но ведёт
-    // на общий MOCK_INSTRUCTIONS_URL (actions.js).
     cta: { label: "Открыть инструкцию", action: "openInstruction" },
+    instructionUrl: "https://drive.google.com/drive/folders/1MxWHrXwfanW6kRao-CoPn_PSTSjk22Mi",
   },
   {
     id: "DS160_REVIEW",
