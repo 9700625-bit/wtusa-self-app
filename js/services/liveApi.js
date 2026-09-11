@@ -155,6 +155,12 @@ export async function postSupport(message) {
     return apiPost("support", { message });
 }
 
+export async function confirmVisaReady() {
+    const result = await apiPost("confirmVisaReady", {});
+    invalidateState();
+    return result;
+}
+
 export async function getPreDepartureChecklist() {
     const state = await getState();
     return state.preDepartureChecklist;
