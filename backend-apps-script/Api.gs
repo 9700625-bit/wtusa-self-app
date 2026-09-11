@@ -10,6 +10,7 @@
  *   POST ?action=link            body:{initData, token}
  *   GET  ?action=events&initData=...             -> this student's event invitations (see Events.gs)
  *   POST ?action=respondEvent    body:{initData, groupId, choice, chosenEventId}
+  * POST ?action=confirmVisaReady body:{initData} -> Final Call: student confirms visa readiness; notifies coordinator via amoCRM task (idempotent, see confirmVisaReady_)
  *   GET/POST ?action=amoWebhook&secret=...       -> amoCRM webhook receiver (Webhooks.gs)
  *   GET  ?action=amoOauthCallback&code=...        -> one-time amoCRM OAuth callback (AmoCRM.gs)
  *   GET  ?action=adminCreateLink&dealId=...&secret=<ADMIN_SECRET> -> ready-to-send
@@ -170,6 +171,8 @@ function doPost(e) {
         return jsonOutput_({ amoDealId: consumeLinkToken(body.token, String(user.id), user) });
       case "respondEvent":
         return jsonOutput_(respondToEvent_(user, body.groupId, body.choice, body.chosenEventId));
+      case "confirmVisaReady":
+        return jsonOutput_(confirmVisaReady_(user));
       default:
         return jsonOutput_({ error: "unknown action" });
     }
@@ -457,4 +460,17 @@ function toggleChecklistItem_(telegramUser, itemId) {
     label: c.label,
     done: c.done === "yes",
   }));
+}
+
+function confirmVisaReady_(telegramUser) {
+  const telegramId = String(telegramUser.id);
+  const participant = findRow("Participants", "telegram_id", telegramId);
+  if (!participant) throw new Error("Участник не найден.");
+  if (participant.visa_ready_confirmed === "yes") return { ok: true, alreadyConfirmed: true };
+  if (participant.amo_deal_id) {
+    createCoordinatorTask(participant.amo_deal_id, "Студент подтвердил готовность к визовому интервью (Final Call) в приложении.", 24);
+  }
+  updateRow("Participants", participant._row, { visa_ready_confirmed: "yes" });
+  logEvent(telegramId, "mini_app", "visa_ready_confirmed", "", "");
+  return { ok: true };
 }
