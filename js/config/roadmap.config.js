@@ -166,7 +166,8 @@ export const STAGES = [
       whatRequired: "Пока ничего.",
       whatsNext: "После проверки офер будет отправлен спонсору CIEE.",
     },
-    cta: null,
+    cta: { label: "Открыть инструкцию", action: "openInstruction" },
+    instructionUrl: "https://drive.google.com/drive/folders/1A-3U7-rCT2U51FblQINQmtvOlKfcaI-6",
   },
   {
     id: "JOB_OFFER_SUBMITTED_CIEE",
