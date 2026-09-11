@@ -66,6 +66,14 @@ export async function runCtaAction(action, meta = {}) {
       await api.confirmVisaReady();
       showAlert("Готово! Мы передали координатору, что вы готовы к визовому интервью.");
       break;
+    case "confirmJobOffer":
+      // CIEE_FILLED — студент сообщает, что нашёл офер; бэкенд ставит
+      // координатору задачу в amoCRM (confirmJobOffer_ в Api.gs), тот
+      // связывается со студентом и переводит сделку на "Job Offer получен"
+      // вручную. Идемпотентно, как confirmVisaReady выше.
+      await api.confirmJobOffer();
+      showAlert("Готово! Мы передали координатору, что у вас есть Job Offer — он скоро с вами свяжется.");
+      break;
     default:
       console.warn("[actions] unknown CTA action:", action);
   }
