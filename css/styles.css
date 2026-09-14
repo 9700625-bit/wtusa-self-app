@@ -66,9 +66,17 @@ h3{font-size:15px;margin:0 0 8px}
 .tag.miss{background:#fdebec;color:var(--danger)}
 
 .bottom{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:min(460px,100%);display:grid;grid-template-columns:repeat(6,1fr);background:rgba(255,255,255,.96);backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:8px 4px calc(8px + env(safe-area-inset-bottom));z-index:3}
-.nav{border:0;background:transparent;padding:8px 1px;color:#8a96a8;font-size:9.5px;cursor:pointer;font-family:inherit}
-.nav .ico{display:block;font-size:18px;margin-bottom:3px}
-.nav.active{color:var(--navy);font-weight:800}
+.nav{border:0;background:transparent;padding:7px 1px 6px;color:#8a96a8;font-size:10px;line-height:1.1;cursor:pointer;font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:4px}
+.nav .ico{display:block;flex:none}
+.nav .nav-label{display:block;white-space:nowrap}
+.nav.active{color:var(--navy);font-weight:700}
+.nav.active .ico{stroke-width:2}
+/* На 320 подписи «События» и «Документы» почти смыкаются — на таких
+   экранах шрифт чуть мельче и буквы плотнее, иначе читается как одно слово. */
+@media (max-width:340px){
+  .nav{font-size:9px;letter-spacing:-.2px}
+  .nav .ico{width:21px;height:21px}
+}
 
 .profile-row{padding:12px 0;border-bottom:1px solid var(--line)}
 .profile-row:last-child{border-bottom:0}
