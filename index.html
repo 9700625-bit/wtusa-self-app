@@ -5,10 +5,57 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Work & Travel USA — SELF</title>
   <link rel="stylesheet" href="css/styles.css" />
+  <!-- Иконка вкладки. Инлайном, чтобы не тратить отдельный запрос и не
+       ловить 404 на /favicon.ico, который браузер просит сам. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1b3a'/%3E%3Ctext x='16' y='23' font-family='Helvetica,Arial,sans-serif' font-size='19' font-weight='700' fill='%23fff' text-anchor='middle'%3EA%3C/text%3E%3C/svg%3E" />
   <!-- Official Telegram Mini Apps SDK. Safe to load outside Telegram too —
        window.Telegram simply stays undefined and js/services/telegram.js
        no-ops in that case (useful for browser-based development/QA). -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!--
+    ПРЕДЗАГРУЗКА МОДУЛЕЙ (14.09.2026).
+
+    Приложение собрано из 26 ES-модулей без шага сборки — это осознанно, но
+    у браузера из-за этого нет способа узнать о файле, пока он не скачал и
+    не разобрал того, кто его импортирует. Получалась лестница: первый файл
+    стартовал на 749-й миллисекунде, последний догружался на 3896-й. Три
+    секунды на 68 килобайт — это не вес, это 26 последовательных запросов.
+
+    modulepreload снимает именно это: браузер узнаёт обо всех модулях из
+    разметки и запрашивает их сразу, одной волной, параллельно. Код при
+    этом не меняется ни на строку — порядок выполнения по-прежнему задают
+    сами import'ы.
+
+    ВАЖНО: путь здесь должен совпадать с тем, что стоит в import,
+    СИМВОЛ В СИМВОЛ, включая "?v=3" у format.js. Иначе браузер посчитает
+    это разными адресами и скачает файл дважды.
+
+    Демо-режим (mockApi.js, mockData.js, demoPanel.js) здесь намеренно
+    отсутствует — он грузится динамически и только при пустом BACKEND_URL,
+    см. js/services/api.js и конец js/app.js.
+  -->
+  <link rel="modulepreload" href="js/router.js" />
+  <link rel="modulepreload" href="js/components/nav.js" />
+  <link rel="modulepreload" href="js/components/statusBadge.js" />
+  <link rel="modulepreload" href="js/config/roadmap.config.js" />
+  <link rel="modulepreload" href="js/config/briefingRoster.config.js" />
+  <link rel="modulepreload" href="js/services/api.js" />
+  <link rel="modulepreload" href="js/services/liveApi.js" />
+  <link rel="modulepreload" href="js/services/config.js" />
+  <link rel="modulepreload" href="js/services/telegram.js" />
+  <link rel="modulepreload" href="js/services/actions.js" />
+  <link rel="modulepreload" href="js/services/deriveViews.js" />
+  <link rel="modulepreload" href="js/screens/home.js" />
+  <link rel="modulepreload" href="js/screens/roadmap.js" />
+  <link rel="modulepreload" href="js/screens/documents.js" />
+  <link rel="modulepreload" href="js/screens/payments.js" />
+  <link rel="modulepreload" href="js/screens/profile.js" />
+  <link rel="modulepreload" href="js/screens/statusDetail.js" />
+  <link rel="modulepreload" href="js/screens/celebration.js" />
+  <link rel="modulepreload" href="js/screens/events.js" />
+  <link rel="modulepreload" href="js/utils/format.js?v=3" />
+  <link rel="modulepreload" href="js/utils/navigation.js" />
 </head>
 <body>
 <div class="app">

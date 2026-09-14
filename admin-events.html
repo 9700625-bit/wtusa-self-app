@@ -11,12 +11,33 @@
     .app{max-width:640px}
     .field{margin-bottom:14px}
     .field label{display:block;font-size:13px;font-weight:700;margin-bottom:6px;color:var(--navy)}
-    .field input, .field textarea{
-      width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+    /* ВЫПАДАЮЩИЕ СПИСКИ ВЫЛЕЗАЛИ ЗА ЭКРАН (14.09.2026). В этом правиле были
+       только input и textarea, а <select> остался со своей естественной
+       шириной — она считается по самому длинному пункту, а пункты здесь
+       длинные («Другое — внеплановый брифинг»). На телефоне список уезжал
+       за правый край: страница получала горизонтальную прокрутку. */
+    .field input, .field textarea, .field select{
+      width:100%;max-width:100%;box-sizing:border-box;
+      border:1px solid var(--line);border-radius:10px;padding:10px 12px;
       font-family:inherit;font-size:14px;background:#fff;
     }
     .slot-row{display:grid;grid-template-columns:1fr 1fr 110px auto;gap:8px;align-items:end;margin-bottom:8px}
     .slot-row .field{margin-bottom:0}
+    /* СТРОКА ВРЕМЕНИ НЕ ПОМЕЩАЛАСЬ (14.09.2026). Четыре колонки — дата,
+       время, мест, крестик — в сумме требуют около 490 пикселей. На экране
+       390 строка выпирала за край, и вместе с ней ехала вся страница.
+       Ниже 520 пикселей раскладываем в две строки: дата и время сверху,
+       «мест» и крестик под ними. */
+    @media (max-width:520px){
+      .slot-row{grid-template-columns:1fr 1fr;gap:8px 8px}
+      .slot-row .remove-slot{justify-self:end;align-self:center}
+    }
+    /* На совсем узких экранах (320 и меньше — такие телефоны у студентов
+       ещё встречаются) даже две колонки не сходятся: полям нужно 126
+       пикселей каждому плюс крестик. Раскладываем в один столбец. */
+    @media (max-width:360px){
+      .slot-row{grid-template-columns:1fr}
+    }
     .remove-slot{background:#fdebec;color:var(--danger);border:0;border-radius:10px;width:38px;height:38px;cursor:pointer;font-size:16px}
     .search-box{margin-bottom:10px}
     .people-list{max-height:280px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:4px}
