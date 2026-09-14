@@ -1,6 +1,5 @@
 import { initRouter, registerScreen, setNavigateListener } from "./router.js";
 import { renderNav, setActiveNav } from "./components/nav.js";
-import { mountDemoPanel } from "./components/demoPanel.js";
 import { initTelegram, getStartParam } from "./services/telegram.js";
 import { isLiveBackendConfigured } from "./services/config.js";
 import * as api from "./services/api.js";
@@ -35,6 +34,73 @@ const contentEl = document.getElementById("screen-root");
 renderNav(navEl);
 setNavigateListener((screenName) => setActiveNav(navEl, screenName));
 
+/**
+ * ЧТО ВИДИТ ЧЕЛОВЕК, КОГДА ССЫЛКА НЕ СРАБОТАЛА (14.09.2026).
+ *
+ * Прогнал все исходы привязки на стенде. Было две беды.
+ *
+ * Первая: из пяти возможных ошибок разбиралась одна («ссылка уже
+ * использована»), остальные четыре получали общий текст «Попробуйте открыть
+ * ссылку ещё раз». Для просроченной ссылки этот совет бесполезен — она
+ * мертва навсегда, нужна новая. А для случая «сделка уже привязана к другому
+ * Telegram» бэкенд (consumeLinkToken в Auth.gs) присылает готовое понятное
+ * объяснение по-русски — и мы его выбрасывали.
+ *
+ * Вторая, хуже: после показа ошибки управление через четыре секунды уходило
+ * роутеру, тот запрашивал состояние, получал NOT_INVITED и рисовал поверх
+ * ВТОРОЙ экран — «Доступ по приглашению. Координатор пришлёт вам ссылку».
+ * Человек с неработающей ссылкой в руках читал два разных объяснения подряд,
+ * причём второе стирало первое и прямо противоречило происходящему.
+ *
+ * Теперь: одна причина — один экран, и он остаётся на месте. Если проблема
+ * в связи, а не в ссылке, даём кнопку повторить.
+ */
+async function показатьОшибкуПривязки_(err, token) {
+  const код = String((err && err.message) || "");
+  const связь = код === "OFFLINE" || код === "TIMEOUT" || код === "BACKEND_HTML";
+
+  let заголовок = "Не получилось подключить профиль";
+  let текст;
+  if (связь) {
+    заголовок = код === "TIMEOUT" ? "Сервер долго не отвечает" : "Нет связи";
+    текст = "Ссылка в порядке — не удалось достучаться до сервера. Проверьте интернет и нажмите «Попробовать ещё раз».";
+  } else if (код.indexOf("already used") !== -1) {
+    текст = "Эта ссылка уже была использована. Если приложение не показывает ваши данные, попросите координатора прислать новую.";
+  } else if (код.indexOf("expired") !== -1) {
+    текст = "Срок действия ссылки истёк — она живёт трое суток. Напишите координатору, он пришлёт новую.";
+  } else if (код.indexOf("Unknown linking token") !== -1) {
+    текст = "Ссылка не распознана. Скорее всего, она скопировалась не целиком — откройте её прямо из сообщения координатора или попросите прислать заново.";
+  } else if (/[А-Яа-я]/.test(код)) {
+    // Бэкенд прислал объяснение на русском (например «Эта сделка уже
+    // привязана к другому аккаунту Telegram») — оно точнее любого нашего.
+    текст = код;
+  } else {
+    текст = "Попробуйте открыть ссылку ещё раз или напишите координатору.";
+  }
+
+  contentEl.innerHTML =
+    '<div class="card"><h2>' + заголовок + "</h2>" +
+    '<div class="sub">' + текст + "</div>" +
+    (связь ? '<button class="btn btn-primary" id="link-retry" style="margin-top:14px">Попробовать ещё раз</button>' : "") +
+    "</div>";
+
+  const повтор = contentEl.querySelector("#link-retry");
+  if (повтор) {
+    повтор.addEventListener("click", async () => {
+      повтор.disabled = true;
+      повтор.textContent = "Подключаем…";
+      try {
+        await api.linkAccount(token);
+        initRouter(contentEl);
+        подставитьСезонВШапку();
+      } catch (e2) {
+        console.error("[app] retry linking failed:", e2);
+        await показатьОшибкуПривязки_(e2, token);
+      }
+    });
+  }
+}
+
 // Deep link support (ТЗ §58/§78): either a one-time account-linking token
 // (?startapp=link_<token>) or a direct jump to a screen (?startapp=status_PLACEMENT_COMPLETED).
 async function handleStartParam() {
@@ -64,15 +130,8 @@ async function handleStartParam() {
     } catch (err) {
       console.error("[app] account linking failed:", err);
       if (contentEl) {
-        const текст =
-          String((err && err.message) || "").indexOf("already used") !== -1
-            ? "Эта ссылка уже была использована. Если приложение не показывает ваши данные, попросите координатора прислать новую."
-            : "Не удалось подключить профиль. Попробуйте открыть ссылку ещё раз или напишите координатору.";
-        contentEl.innerHTML =
-          '<div class="card"><h2>Не получилось подключить профиль</h2>' +
-          '<div class="sub">' + текст + "</div></div>";
-        // Ждём, пока человек прочитает, и только потом отдаём управление роутеру.
-        await new Promise((r) => setTimeout(r, 4000));
+        await показатьОшибкуПривязки_(err, startParam.rest);
+        return "стоп"; // роутер не запускаем — см. комментарий в функции
       }
     }
     return;
@@ -90,10 +149,23 @@ async function handleStartParam() {
   }
 }
 
-handleStartParam().finally(() => {
-  initRouter(contentEl);
-  подставитьСезонВШапку();
-});
+// handleStartParam возвращает "стоп", когда показала экран неудачной
+// привязки: в этом случае роутер запускать НЕЛЬЗЯ — он тут же запросит
+// состояние, получит NOT_INVITED и нарисует поверх второе, противоречащее
+// объяснение (см. комментарий у показатьОшибкуПривязки_). Во всех остальных
+// случаях, включая любую неожиданную ошибку, приложение стартует как раньше.
+handleStartParam().then(
+  (результат) => {
+    if (результат === "стоп") return;
+    initRouter(contentEl);
+    подставитьСезонВШапку();
+  },
+  (err) => {
+    console.error("[app] handleStartParam упала:", err);
+    initRouter(contentEl);
+    подставитьСезонВШапку();
+  }
+);
 
 // СЕЗОН В ШАПКЕ ИЗ ДАННЫХ (03.09.2026). В index.html плашка была
 // захардкожена как «SELF 2027» — участник следующего сезона видел бы чужой
@@ -112,7 +184,15 @@ async function подставитьСезонВШапку() {
     const { participant } = await api.getMe();
     const program = (participant && participant.program) || "";
     const season = (participant && participant.season) || "";
-    if (program && season) плашка.textContent = `${program} ${season}`;
+    // ГОД БЕЗ ИСТОЧНИКА (14.09.2026). Условие было `program && season`, то
+    // есть при пустом сезоне плашка оставалась такой, как написана в разметке
+    // — «SELF 2027». По живым данным season пуст у ВСЕХ подключённых
+    // участников (поле FIELD_ID_SEASON не приезжает из сделки), так что
+    // захардкоженный 2027 показывался каждому, включая тех, у кого сезон
+    // другой. Это ровно тот случай, который правка 03.09.2026 и должна была
+    // закрыть, но не закрыла: без данных разметка проступала обратно.
+    // Теперь без сезона показываем только программу — год не выдумываем.
+    if (program) плашка.textContent = season ? `${program} ${season}` : program;
   } catch (err) {
     // намеренно тихо — см. комментарий выше
   }
@@ -121,6 +201,12 @@ async function подставитьСезонВШапку() {
 // The demo stage-switcher only makes sense on mock data — once a live
 // amoCRM-backed backend is configured, currentStageId is real and this
 // panel is never mounted.
+//
+// ДИНАМИЧЕСКИЙ ИМПОРТ (14.09.2026). Раньше demoPanel.js импортировался
+// сверху файла, то есть скачивался и разбирался при КАЖДОМ открытии — в
+// том числе у студентов, которым панель не показывается никогда. Теперь
+// файл запрашивается только внутри этой ветки, и в боевом режиме браузер
+// о нём даже не узнаёт.
 if (!isLiveBackendConfigured()) {
-  mountDemoPanel();
+  import("./components/demoPanel.js").then((m) => m.mountDemoPanel());
 }
