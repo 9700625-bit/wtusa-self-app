@@ -106,12 +106,37 @@ export async function render(container, params) {
   // когда-нибудь напишут в Reminders.gs и повесят time-driven триггер —
   // вернуть можно обе части, но только вместе.
 
-  const ctaHtml = stage.cta
-    ? `<button class="btn" data-cta="${stage.cta.action}">${stage.cta.label}</button>`
-    : "";
-  const secondaryCtaHtml = stage.secondaryCta
-    ? `<button class="btn secondary" data-cta="${stage.secondaryCta.action}">${stage.secondaryCta.label}</button>`
-    : "";
+  /**
+   * СВЯЗЬ С КООРДИНАТОРОМ ЕСТЬ НА КАЖДОМ ЭТАПЕ (14.09.2026).
+   *
+   * Кнопка «Написать координатору» стояла ровно на двух этапах из двадцати.
+   * На тринадцати не было ВООБЩЕ ни одной кнопки: этапы ожидания — студенту
+   * там нечего делать, и формально это правда. Но именно на них он проводит
+   * больше всего времени, и именно там естественно хочется спросить «а долго
+   * ещё?». Выхода из экрана не было никакого.
+   *
+   * Добавляем запасную кнопку ко всем этапам, где своей такой нет. Это не
+   * трогает roadmap.config.js: тексты этапов остаются как согласованы, кнопка
+   * появляется из кода.
+   *
+   * Заодно исправлена мелочь: раньше вторичная кнопка рисовалась только
+   * вместе с главной (`ctaHtml ? ...`), поэтому этап с одной лишь вторичной
+   * кнопкой не показал бы ничего.
+   */
+  const кнопки = [];
+  if (stage.cta) {
+    кнопки.push(`<button class="btn" data-cta="${stage.cta.action}">${stage.cta.label}</button>`);
+  }
+  if (stage.secondaryCta) {
+    кнопки.push(`<button class="btn secondary" data-cta="${stage.secondaryCta.action}">${stage.secondaryCta.label}</button>`);
+  }
+  const ужеЕсть =
+    (stage.cta && stage.cta.action === "writeCoordinator") ||
+    (stage.secondaryCta && stage.secondaryCta.action === "writeCoordinator");
+  if (!ужеЕсть) {
+    кнопки.push('<button class="btn secondary" data-cta="writeCoordinator">Написать координатору</button>');
+  }
+  const ctaHtml = кнопки.join("");
 
   container.innerHTML = `
     <section class="screen active">
@@ -120,7 +145,7 @@ export async function render(container, params) {
         <div class="kicker">${isCurrentStage ? "Текущий этап" : "Этап пройден"}</div>
         <h1>${emoji} ${stage.title}</h1>
         <div class="sub">${stage.description}</div>
-        ${ctaHtml ? `<div style="margin-top:14px;display:grid;gap:8px">${ctaHtml}${secondaryCtaHtml}</div>` : ""}
+        ${ctaHtml ? `<div style="margin-top:14px;display:grid;gap:8px">${ctaHtml}</div>` : ""}
       </div>
       ${extraHtml}
       <details class="card">
@@ -136,10 +161,16 @@ export async function render(container, params) {
   container.querySelector("#back-btn").addEventListener("click", goBack);
 container.querySelectorAll("[data-cta]").forEach((btn) => {
   btn.addEventListener("click", async () => {
-    // Final Call — одноразовая кнопка: блокируем её сразу, чтобы повторное нажатие
-    // (до ответа бэкенда) не ушло вторым запросом в amoCRM; бэкенд всё равно
+    // Одноразовые кнопки: блокируем сразу, чтобы повторное нажатие (до
+    // ответа бэкенда) не ушло вторым запросом в amoCRM; бэкенд всё равно
     // идемпотентен, но зачем лишние запросы.
-    if (btn.dataset.cta === "confirmVisaReady") {
+    //
+    // ДОБАВЛЕН confirmJobOffer (14.09.2026). Защита стояла только на
+    // confirmVisaReady, хотя вторая кнопка устроена ровно так же: «У меня
+    // есть Job Offer» на этапе CIEE_FILLED тоже ставит задачу координатору
+    // и тоже одноразовая по смыслу. Без блокировки её можно было нажимать
+    // сколько угодно раз подряд, и каждое нажатие уходило на сервер.
+    if (btn.dataset.cta === "confirmVisaReady" || btn.dataset.cta === "confirmJobOffer") {
       if (btn.disabled) return;
       const original = btn.textContent;
       btn.disabled = true;

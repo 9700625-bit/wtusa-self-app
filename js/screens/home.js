@@ -44,7 +44,20 @@ export async function render(container) {
           ? `<div class="status">
               <span class="dot ${paymentDot}"></span>
               <div><b>${esc(nearestPayment.label)}</b>
-                <div class="sub">${paymentWhen} · ${formatMoney(nearestPayment.amount, nearestPayment.currency)}${
+                <div class="sub">${paymentWhen} · ${
+                  // СУММА МОЖЕТ БЫТЬ НУЛЁМ (14.09.2026). Экран «Оплата» с
+                  // 02.09 пишет в этом случае «сумма уточняется», а главная
+                  // продолжала печатать «$0» — и попадал сюда именно третий
+                  // платёж, у которого сумма приходит из amoCRM и до
+                  // заполнения равна нулю. Два экрана говорили студенту
+                  // разное об одном платеже, а «$0» читается как «платить не
+                  // нужно». Проверено на живых данных: у участника на этапе
+                  // Placement Completed главная показывала «Оплата 3 · срок
+                  // уточняется · $0».
+                  Number(nearestPayment.amount) > 0
+                    ? formatMoney(nearestPayment.amount, nearestPayment.currency)
+                    : "сумма уточняется"
+                }${
                   paymentDays !== null
         ? paymentDays < 0
           // Просроченный платёж на главной подписывался «осталось N дней» —

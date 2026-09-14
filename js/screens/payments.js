@@ -51,9 +51,26 @@ export async function render(container) {
 
   const feesHtml = visaFees
     .map((fee) => {
+      // СУММУ ВИДНО, КАК ТОЛЬКО ЭТАП ОТКРЫТ (14.09.2026). Раньше строка
+      // показывала сумму только при статусе "unpaid", а статус берётся из
+      // листа VisaInfo — в который на сегодня не пишет ни один код: лист
+      // пустой, бэкенд подставляет "locked", и сумма не показывалась НИКОМУ
+      // и НИКОГДА, даже после визового этапа. Студент видел «Откроется на
+      // визовом этапе» и на визовом этапе тоже.
+      //
+      // Теперь: до этапа — «откроется», после — сумма. Отметку «оплачено /
+      // не оплачено» ставим, только если она реально есть в VisaInfo;
+      // выдумывать её нельзя — сборы платятся мимо нас, мы не можем знать.
       const status = visaFeesUnlocked ? fee.status : "locked";
-      const dot = status === "paid" ? "ok" : status === "unpaid" ? "warn" : "wait";
-      const note = status === "paid" ? "Оплачено" : status === "unpaid" ? `Не оплачено · ${formatMoney(fee.amount)}` : "Откроется на визовом этапе";
+      const известен = status === "paid" || status === "unpaid";
+      const dot = status === "paid" ? "ok" : visaFeesUnlocked ? "warn" : "wait";
+      const note = !visaFeesUnlocked
+        ? "Откроется на визовом этапе"
+        : status === "paid"
+          ? "Оплачено"
+          : известен
+            ? `Не оплачено · ${formatMoney(fee.amount)}`
+            : formatMoney(fee.amount);
       return `
         <div class="status">
           <span class="dot ${dot}"></span>
@@ -69,13 +86,42 @@ export async function render(container) {
         <h1>График платежей</h1>
         <div class="row">
           <div><div class="small">Оплачено</div><div class="metric">${formatMoney(paidTotal, "USD")}</div></div>
-          <div style="text-align:right"><div class="small">Стоимость программы</div><div class="metric">${formatMoney(programCost, "USD")}</div></div>
+          ${
+            // ЛУЧШЕ НИЧЕГО, ЧЕМ НЕВЕРНАЯ ЦЕНА (14.09.2026).
+            //
+            // Стоимость программы переезжает в поле сделки amoCRM — она
+            // разная у Self и Full и будет меняться. Пока в сделке её не
+            // проставили, бэкенд присылает null, и колонка просто не
+            // рисуется: «Оплачено» занимает строку одно.
+            //
+            // Раньше на этом месте всегда стояло число. Бралось оно из
+            // настройки PROGRAM_COST_USD, а настройка не была задана —
+            // значит срабатывало запасное значение, зашитое в коде, и
+            // каждый студент видел одну и ту же сумму независимо от своего
+            // тарифа и договорённостей.
+            programCost
+              ? `<div style="text-align:right"><div class="small">Стоимость программы</div><div class="metric">${formatMoney(programCost, "USD")}</div></div>`
+              : ""
+          }
         </div>
       </div>
       <div class="card">${paymentsHtml}</div>
       <div class="card">
         <h3>Обязательные визовые сборы</h3>
         ${feesHtml}
+        ${
+          // В ЧЁМ И ПО КАКОМУ КУРСУ ПЛАТИТЬ (14.09.2026). Оба сбора указаны
+          // в долларах, но платятся в тенге, и курс тут НЕ Нацбанка, как у
+          // платежей выше, — у консульского сбора свой курс посольства США.
+          // Без этой строки студент видел две суммы в долларах и не понимал
+          // ни где платить, ни по какому курсу пересчитывать.
+          //
+          // Суммы намеренно не пересчитываем сами: курс посольства меняется,
+          // а ошибиться в деньгах хуже, чем не назвать цифру.
+          visaFeesUnlocked
+            ? `<div class="small" style="margin-top:10px">Оба сбора платятся напрямую в структуры США, не через ABC Universe. Консульский сбор — в тенге по курсу посольства на день оплаты.</div>`
+            : ""
+        }
       </div>
     </section>`;
 }
