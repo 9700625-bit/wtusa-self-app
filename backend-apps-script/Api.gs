@@ -92,6 +92,25 @@ function doGet(e) {
       if (!timingSafeEqual_(e.parameter.secret, CFG("ADMIN_SECRET"))) return jsonOutput_({ error: "bad secret" });
       const dealId = e.parameter.dealId;
       if (!dealId) return jsonOutput_({ error: "dealId required" });
+      // ПРОВЕРКА СДЕЛКИ ДО СОЗДАНИЯ ТОКЕНА (14.09.2026).
+      //
+      // Раньше токен выписывался первой же строкой, без единой проверки, а
+      // getDeal() вызывался ниже и только ради телефона -- причём его ошибка
+      // намеренно проглатывалась. В итоге любой мусор в поле "ID сделки" в
+      // admin.html (например случайно вставленное имя) давал координатору
+      // рабочую ссылку на несуществующую сделку.
+      //
+      // Ловушка: amoCRM на несуществующий ID отвечает НЕ 404, а 204 с пустым
+      // телом. getDeal() поэтому не бросает исключение, а тихо возвращает
+      // null -- отсюда отдельная проверка на пустой результат, одной только
+      // try/catch здесь недостаточно.
+      if (!/^\d+$/.test(String(dealId))) {
+        return jsonOutput_({ error: "dealId должен быть числовым ID сделки amoCRM" });
+      }
+      const deal = getDeal(dealId);
+      if (!deal) {
+        return jsonOutput_({ error: "Сделка " + dealId + " не найдена в amoCRM" });
+      }
       const token = createLinkToken(dealId);
       const botUsername = CFG("TELEGRAM_BOT_USERNAME");
       const appName = CFG("TELEGRAM_APP_NAME");
@@ -104,7 +123,7 @@ function doGet(e) {
       // link creation itself -- the coordinator can still copy the link.
       let phone = null;
       try {
-        phone = contactPhoneForDeal_(getDeal(dealId));
+        phone = contactPhoneForDeal_(deal);
       } catch (err) {
         Logger.log("adminCreateLink: could not fetch phone for deal %s: %s", dealId, err);
       }
