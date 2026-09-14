@@ -62,7 +62,11 @@
   <header class="top">
     <!-- Текст плашки подставляется из данных участника в app.js; здесь он
          остаётся как запасной вариант на случай, если сезон не пришёл. -->
-    <div class="brand"><b>ABC Universe · Work &amp; Travel USA</b><span class="pill" id="brand-season">SELF 2027</span></div>
+    <div class="brand"><b>ABC Universe · Work &amp; Travel USA</b><!-- Год сюда не пишем (14.09.2026): плашку заполняет подставитьСезонВШапку()
+         из данных участника. Пока состояния нет — на экране ошибки, до ответа
+         сервера — видно только программу, и это честно. Раньше здесь стояло
+         «SELF 2027», и этот год показывался всем, у кого сезон не пришёл из
+         сделки, то есть всем. --><span class="pill" id="brand-season">SELF</span></div>
   </header>
   <main class="content" id="screen-root" aria-live="polite"></main>
   <nav class="bottom" id="bottom-nav"></nav>
