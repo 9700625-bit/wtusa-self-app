@@ -4,78 +4,99 @@
  * BACKEND_URL is configured (js/services/config.js), otherwise stays on
  * mock data (mockApi.js) — this is the Phase 1 → Phase 2 switch, and it's
  * the ONLY file screens depend on, so nothing else needs to change.
+ *
+ * ДЕМО-РЕЖИМ ГРУЗИТСЯ ПО ТРЕБОВАНИЮ (14.09.2026).
+ *
+ * Здесь стоял обычный статический импорт mockApi.js, а тот тянет за собой
+ * mockData.js. Оба нужны ТОЛЬКО когда BACKEND_URL пустой. Адрес давно
+ * заполнен, значит у каждого студента при каждом открытии скачивались и
+ * разбирались два файла, которые ни разу не вызываются: 11 килобайт и два
+ * лишних сетевых запроса из двадцати шести.
+ *
+ * Теперь mockApi.js запрашивается динамически и только в демо-ветке.
+ * Промодуль кешируется в mockPromise_, поэтому import() отрабатывает один
+ * раз за сеанс, а не на каждый вызов.
+ *
+ * Следствие для вызывающего кода: backend_() стала асинхронной, и все
+ * функции ниже — тоже. Снаружи ничего не меняется: они и раньше возвращали
+ * промисы, экраны их уже await'ят.
  */
 
 import { isLiveBackendConfigured } from "./config.js";
-import * as mockApi from "./mockApi.js";
 import * as liveApi from "./liveApi.js";
 
-function backend() {
-    return isLiveBackendConfigured() ? liveApi : mockApi;
+let mockPromise_ = null;
+function loadMock_() {
+  if (!mockPromise_) mockPromise_ = import("./mockApi.js");
+  return mockPromise_;
 }
 
-export function getMe() {
-    return backend().getMe();
+function backend_() {
+  return isLiveBackendConfigured() ? Promise.resolve(liveApi) : loadMock_();
 }
-export function getDashboard() {
-    return backend().getDashboard();
+
+export async function getMe() {
+    return (await backend_()).getMe();
 }
-export function getRoadmap() {
-    return backend().getRoadmap();
+export async function getDashboard() {
+    return (await backend_()).getDashboard();
 }
-export function getStageDetail(stageId) {
-    return backend().getStageDetail(stageId);
+export async function getRoadmap() {
+    return (await backend_()).getRoadmap();
 }
-export function getDocuments() {
-    return backend().getDocuments();
+export async function getStageDetail(stageId) {
+    return (await backend_()).getStageDetail(stageId);
 }
-export function uploadDocument(docId, file) {
-    return backend().uploadDocument(docId, file);
+export async function getDocuments() {
+    return (await backend_()).getDocuments();
 }
-export function getPayments() {
-    return backend().getPayments();
+export async function uploadDocument(docId, file) {
+    return (await backend_()).uploadDocument(docId, file);
 }
-export function getBriefings() {
-    return backend().getBriefings();
+export async function getPayments() {
+    return (await backend_()).getPayments();
 }
-export function postSupport(message) {
-    return backend().postSupport(message);
+export async function getBriefings() {
+    return (await backend_()).getBriefings();
 }
-export function confirmVisaReady() {
-    return backend().confirmVisaReady();
+export async function postSupport(message) {
+    return (await backend_()).postSupport(message);
 }
-export function confirmJobOffer() {
-    return backend().confirmJobOffer();
+export async function confirmVisaReady() {
+    return (await backend_()).confirmVisaReady();
 }
-export function getPreDepartureChecklist() {
-    return backend().getPreDepartureChecklist();
+export async function confirmJobOffer() {
+    return (await backend_()).confirmJobOffer();
 }
-export function toggleChecklistItem(itemId) {
-    return backend().toggleChecklistItem(itemId);
+export async function getPreDepartureChecklist() {
+    return (await backend_()).getPreDepartureChecklist();
 }
-export function getVisaInfo() {
-    return backend().getVisaInfo();
+export async function toggleChecklistItem(itemId) {
+    return (await backend_()).toggleChecklistItem(itemId);
 }
-export function getEvents() {
-    return backend().getEvents();
+export async function getVisaInfo() {
+    return (await backend_()).getVisaInfo();
 }
-export function respondEvent(groupId, choice, chosenEventId) {
-    return backend().respondEvent(groupId, choice, chosenEventId);
+export async function getEvents() {
+    return (await backend_()).getEvents();
+}
+export async function respondEvent(groupId, choice, chosenEventId) {
+    return (await backend_()).respondEvent(groupId, choice, chosenEventId);
 }
 
 /** Live-only: consumes a one-time linking token (ТЗ §58). No-op on mock. */
-export function linkAccount(token) {
-    return isLiveBackendConfigured() ? liveApi.linkAccount(token) : Promise.resolve({ skipped: true });
+export async function linkAccount(token) {
+    return isLiveBackendConfigured() ? liveApi.linkAccount(token) : { skipped: true };
 }
 
 /* Demo-only helpers — only exist on the mock backend. Calling them while
  * the live backend is active is a programming error (the demo panel is
  * never mounted in that case — see app.js), so they intentionally throw. */
-export function _debugSetCurrentStage(stageId) {
+export async function _debugSetCurrentStage(stageId) {
     if (isLiveBackendConfigured()) throw new Error("_debugSetCurrentStage is mock-only");
-    return mockApi._debugSetCurrentStage(stageId);
+    return (await loadMock_())._debugSetCurrentStage(stageId);
 }
-export function _debugGetCurrentStageId() {
+export async function _debugGetCurrentStageId() {
     if (isLiveBackendConfigured()) throw new Error("_debugGetCurrentStageId is mock-only");
-    return mockApi._debugGetCurrentStageId();
+    return (await loadMock_())._debugGetCurrentStageId();
 }

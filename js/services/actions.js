@@ -15,6 +15,12 @@ import { getStage } from "../config/roadmap.config.js";
 const MOCK_CIEE_PORTAL_URL = "https://www.ciee.org/participant-login";
 const MOCK_INSTRUCTIONS_URL = "https://abcuniverse.kz/instructions/self";
 
+/** Карточка, внутри которой лежит переданный элемент — к ней и прокручиваем,
+ * чтобы заголовок блока оказался на экране, а не первая строчка списка. */
+function blockCard_(el) {
+  return el.closest(".card") || el.closest("section") || el;
+}
+
 export async function runCtaAction(action, meta = {}) {
   hapticImpact("light");
   switch (action) {
@@ -54,11 +60,28 @@ export async function runCtaAction(action, meta = {}) {
       }
       break;
     }
-    case "openChecklist":
+    case "openChecklist": {
       // In-app navigation (e.g. Pre-Departure checklist lives on its own
       // Status Detail screen, not an external link).
-      window.location.hash = `status/${meta.stageId || "VISA_APPROVED"}`;
+      //
+      // КНОПКА, КОТОРАЯ НИЧЕГО НЕ ДЕЛАЛА (14.09.2026). На VISA_APPROVED CTA
+      // «Открыть чек-лист» вёл на status/VISA_APPROVED — то есть на экран,
+      // где студент уже стоит, и где чек-лист нарисован ниже по странице.
+      // Адрес не менялся, hashchange не срабатывал, на экране не происходило
+      // ровным счётом ничего: человек жал кнопку и решал, что она сломана.
+      // Теперь в этом случае просто прокручиваем к самому чек-листу.
+      const цель = `status/${meta.stageId || "VISA_APPROVED"}`;
+      if (window.location.hash === `#${цель}`) {
+        const блок = document.querySelector("[data-checklist]");
+        const карточка = блок ? blockCard_(блок) : null;
+        if (карточка) {
+          карточка.scrollIntoView({ behavior: "smooth", block: "start" });
+          return;
+        }
+      }
+      window.location.hash = цель;
       break;
+    }
     case "confirmVisaReady":
       // Final Call — студент подтверждает готовность к визовому интервью; бэкенд
       // ставит координатору задачу в amoCRM (confirmVisaReady_ в Api.gs) и сам следит,

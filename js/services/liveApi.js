@@ -114,6 +114,32 @@ function invalidateState() {
     stateCache = null;
 }
 
+/**
+ * ТОЧЕЧНОЕ ОБНОВЛЕНИЕ КЕША (14.09.2026).
+ *
+ * Половина действий в приложении меняет ровно одно поле состояния, а
+ * бэкенд в ответ уже присылает новое значение. Раньше мы это значение
+ * выбрасывали и звали invalidateState() — то есть следующая же отрисовка
+ * экрана тянула состояние целиком заново. А "состояние целиком" на стороне
+ * Apps Script — это восемь полных чтений листов Google Sheets.
+ *
+ * Замерено на стенде: один клик по галочке чек-листа давал ДВА обращения к
+ * серверу вместо одного. На чек-листе из восьми пунктов это восемь лишних
+ * полных выгрузок базы, и каждая — пара секунд ожидания с перерисовкой
+ * экрана под пальцем.
+ *
+ * Здесь мы вместо этого кладём свежее значение в уже имеющийся кеш. Если
+ * кеша нет (первое действие после запуска) — честно инвалидируем, как
+ * раньше: тогда следующий getState() и так сходит на сервер один раз.
+ */
+function patchState_(поле, значение) {
+    if (stateCache && значение !== undefined && значение !== null) {
+        stateCache = { ...stateCache, [поле]: значение };
+    } else {
+        invalidateState();
+    }
+}
+
 export async function getMe() {
     const state = await getState();
     return { participant: state.participant, coordinator: state.coordinator, programCost: state.programCost };
@@ -155,16 +181,29 @@ export async function postSupport(message) {
     return apiPost("support", { message });
 }
 
+/**
+ * СОСТОЯНИЕ НЕ СБРАСЫВАЕМ (14.09.2026).
+ *
+ * Обе эти кнопки ставят координатору задачу в amoCRM и, в случае визы,
+ * помечают участника в листе Participants. Ни то, ни другое не попадает в
+ * ответ `state`: stateForUser_ (Api.gs) собирает participant из строго
+ * перечисленных полей, и флага подтверждения среди них нет.
+ *
+ * То есть прежний invalidateState() заставлял следующий же экран заново
+ * выгрузить всю базу — ради данных, которые не изменились. Замерено: после
+ * нажатия «Я готов(а) к визе» переход на любой экран стоил лишнего полного
+ * запроса состояния.
+ *
+ * ЕСЛИ бэкенд когда-нибудь начнёт отдавать эти флаги во `state` (например
+ * чтобы кнопка оставалась «Подтверждено ✅» после перезахода) — сброс кеша
+ * сюда надо вернуть, иначе экран будет показывать старое значение.
+ */
 export async function confirmVisaReady() {
-    const result = await apiPost("confirmVisaReady", {});
-    invalidateState();
-    return result;
+    return apiPost("confirmVisaReady", {});
 }
 
 export async function confirmJobOffer() {
-    const result = await apiPost("confirmJobOffer", {});
-    invalidateState();
-    return result;
+    return apiPost("confirmJobOffer", {});
 }
 
 export async function getPreDepartureChecklist() {
@@ -173,9 +212,13 @@ export async function getPreDepartureChecklist() {
 }
 
 export async function toggleChecklistItem(itemId) {
-    const result = await apiPost("toggleChecklist", { itemId });
-    invalidateState();
-    return result;
+    // Бэкенд (toggleChecklistItem_ в Api.gs) возвращает ВЕСЬ обновлённый
+    // чек-лист — этого достаточно, чтобы поправить кеш на месте. Раньше
+    // ответ игнорировался и состояние выбрасывалось целиком, из-за чего
+    // экран после каждой галочки заново тянул все восемь листов.
+    const checklist = await apiPost("toggleChecklist", { itemId });
+    patchState_("preDepartureChecklist", Array.isArray(checklist) ? checklist : null);
+    return checklist;
 }
 
 export async function getVisaInfo() {
@@ -195,10 +238,41 @@ export async function linkAccount(token) {
 // invite-only and low-volume, and a student needs to see the result of
 // confirming/declining immediately — a plain always-fresh call is simpler
 // and cheaper here than adding a second cache with its own invalidation.
+//
+// КОРОТКИЙ КЕШ (14.09.2026). Замысел выше остаётся в силе, но «всегда
+// свежо» означало запрос на КАЖДЫЙ заход во вкладку «События» — в разборе
+// одного сеанса это оказалось шесть обращений из тринадцати, больше всех
+// остальных вместе взятых. Человек, который трижды заглянул в мероприятия,
+// трижды ждал ответа сервера ради одного и того же списка.
+//
+// Компромисс: держим ответ 60 секунд и СБРАСЫВАЕМ его сразу после записи
+// или отказа. То есть требование «увидеть результат своего действия
+// немедленно» выполняется буквально, как и раньше. Меняется только одно:
+// приглашение, которое координатор создал, пока студент сидит в
+// приложении, появится у него в течение минуты, а не мгновенно.
+const EVENTS_CACHE_MS = 60 * 1000;
+let eventsCache = null;
+let eventsCacheAt = 0;
+let eventsPromise = null;
+
 export async function getEvents() {
-    return apiGet("events");
+    if (eventsCache && Date.now() - eventsCacheAt < EVENTS_CACHE_MS) return eventsCache;
+    // Склейка параллельных вызовов — та же причина, что и у getState выше:
+    // экран может спросить события дважды в один тик.
+    if (!eventsPromise) {
+        eventsPromise = apiGet("events")
+            .then((json) => {
+                eventsCache = json;
+                eventsCacheAt = Date.now();
+                return json;
+            })
+            .finally(() => { eventsPromise = null; });
+    }
+    return eventsPromise;
 }
 
 export async function respondEvent(groupId, choice, chosenEventId) {
-    return apiPost("respondEvent", { groupId, choice, chosenEventId });
+    const result = await apiPost("respondEvent", { groupId, choice, chosenEventId });
+    eventsCache = null; // ответ студента меняет список — показываем свежий
+    return result;
 }
