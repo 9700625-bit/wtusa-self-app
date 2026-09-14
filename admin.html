@@ -350,6 +350,28 @@ async function loadMain() {
   document.getElementById("manual-submit").addEventListener("click", () => {
     const id = document.getElementById("manual-deal-id").value.trim();
     if (!id) return;
+    // ПРОВЕРКА ВВОДА (14.09.2026).
+    //
+    // Поле свободное, и в него попадал произвольный текст — например
+    // случайно оставшееся в буфере имя. Бэкенд на такое раньше всё равно
+    // отдавал рабочую ссылку: токен создавался до любой проверки, а
+    // getDeal() вызывался ниже и только ради телефона. Координатор
+    // отправлял ссылку клиенту, тот открывал — и привязывался в никуда.
+    //
+    // Сам бэкенд теперь это блокирует (adminCreateLink в Api.gs), здесь —
+    // чтобы мусор не уходил в сеть и ошибка была видна сразу. ID сделки в
+    // amoCRM всегда состоит только из цифр.
+    if (!/^\d+$/.test(id)) {
+      const resultCard = document.getElementById("result-card");
+      const resultEl = document.getElementById("result");
+      resultCard.style.display = "block";
+      document.getElementById("result-title").textContent = "Ссылка";
+      resultEl.className = "err";
+      resultEl.textContent =
+        "ID сделки состоит только из цифр. Посмотрите его в адресе сделки в amoCRM, например .../leads/detail/47762837";
+      resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      return;
+    }
     createLinkFor(id, null);
   });
 }
