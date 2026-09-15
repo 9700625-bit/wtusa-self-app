@@ -43,6 +43,7 @@ h3{font-size:15px;margin:0 0 8px}
 .btn{display:inline-flex;align-items:center;justify-content:center;width:100%;padding:13px 15px;border-radius:14px;border:0;background:var(--navy);color:#fff;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit}
 .btn.secondary{background:#eef2f8;color:var(--navy)}
 .btn:active{opacity:.85}
+.btn:disabled{background:var(--muted);color:#fff;opacity:.65;cursor:not-allowed}
 .row{display:flex;justify-content:space-between;gap:12px;align-items:center}
 .metric{font-weight:800;font-size:22px}
 .small{font-size:12px;color:var(--muted)}
