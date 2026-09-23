@@ -3,7 +3,10 @@
   --muted:#6e7b8f;--line:#e7ebf2;--ok:#2f9e62;--warn:#e49b26;--danger:#d94141;
 }
 *{box-sizing:border-box}
-body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:#132033}
+body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:#132033;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}
+/* Элементы форм НЕ наследуют шрифт по умолчанию — браузер даёт им свой
+   системный. Отсюда «другой шрифт» на экранах с кнопками (22.09.2026). */
+button,input,select,textarea{font-family:inherit;font-size:inherit;line-height:inherit;color:inherit}
 .app{max-width:460px;margin:0 auto;min-height:100vh;background:var(--bg);padding-bottom:88px}
 .top{padding:18px 18px 14px;background:linear-gradient(180deg,#0f2344,#17335e);color:#fff;position:sticky;top:0;z-index:2;box-shadow:0 8px 30px rgba(15,35,68,.14)}
 .brand{display:flex;align-items:center;justify-content:space-between}
@@ -56,6 +59,7 @@ h3{font-size:15px;margin:0 0 8px}
 .road-step.done .num{background:#e7f6ee;color:var(--ok)}
 .road-step.current .num{background:var(--navy);color:#fff}
 .road-step.warn .num{background:#fdebec;color:var(--danger)}
+.road-date{font-size:12px;color:var(--muted);margin:3px 0 0 38px}
 .road-desc{font-size:13px;color:var(--muted);margin:6px 0 0 38px}
 
 .doc,.pay{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid var(--line)}
@@ -65,22 +69,43 @@ h3{font-size:15px;margin:0 0 8px}
 .tag.review{background:#eef2ff;color:#4966d8}
 .tag.need{background:#fff1e0;color:#b97000}
 .tag.miss{background:#fdebec;color:var(--danger)}
+/* Плашка без класса («Позже», «Ожидание») — раньше голый текст без фона (22.09.2026). */
+.tag.wait,.tag:not(.ok):not(.review):not(.need):not(.miss){background:#eef2f8;color:var(--muted)}
 
 .bottom{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:min(460px,100%);display:grid;grid-template-columns:repeat(6,1fr);background:rgba(255,255,255,.96);backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:8px 4px calc(8px + env(safe-area-inset-bottom));z-index:3}
-.nav{border:0;background:transparent;padding:7px 1px 6px;color:#8a96a8;font-size:10px;line-height:1.1;cursor:pointer;font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:4px}
-.nav .ico{display:block;flex:none}
+/* НИЖНИЙ РЯД КРУПНЕЕ И ЦВЕТНОЙ (22.09.2026): иконки 27px вместо 23,
+   подпись 11px. Значки цветные всегда (см. nav.js); у активного пункта
+   подложка иконки насыщается, подпись — тёмно-синяя жирная. */
+.nav{border:0;background:transparent;padding:6px 1px 5px;color:#8a96a8;font-size:11px;line-height:1.1;cursor:pointer;font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:5px}
+.nav .ico{display:block;flex:none;width:27px;height:27px;transition:transform .15s ease}
 .nav .nav-label{display:block;white-space:nowrap}
 .nav.active{color:var(--navy);font-weight:700}
-.nav.active .ico{stroke-width:2}
+.nav.active .ico{transform:translateY(-1px)}
+.nav.active .ico .ico-bg{fill-opacity:1}
 /* На 320 подписи «События» и «Документы» почти смыкаются — на таких
    экранах шрифт чуть мельче и буквы плотнее, иначе читается как одно слово. */
 @media (max-width:340px){
-  .nav{font-size:9px;letter-spacing:-.2px}
-  .nav .ico{width:21px;height:21px}
+  .nav{font-size:9.5px;letter-spacing:-.2px}
+  .nav .ico{width:24px;height:24px}
 }
 
 .profile-row{padding:12px 0;border-bottom:1px solid var(--line)}
 .profile-row:last-child{border-bottom:0}
+/* Точка важности в заголовках карточек (вместо эмодзи 🔴🟢, 22.09.2026). */
+.sev-dot{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:middle;margin:-3px 8px 0 0}
+/* Ссылка-строка внутри карточки (курс НБ РК и т.п.): без подчёркивания,
+   с шевроном справа, как пункт списка (22.09.2026). */
+.link-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding:11px 12px;border-radius:12px;background:#eef2f8;color:var(--navy);font-size:13.5px;font-weight:700;text-decoration:none}
+.link-row:active{background:#e3e9f3}
+/* Карточка «Подробнее об этапе» (22.09.2026) */
+.detail-card summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between}
+.detail-card summary::marker{content:"";display:none}
+.detail-card summary::-webkit-details-marker{display:none}
+.detail-chevron{width:9px;height:9px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);margin-right:4px;transition:transform .15s ease}
+.detail-card[open] .detail-chevron{transform:rotate(-135deg)}
+.detail-body{margin-top:10px}
+.detail-row{padding:10px 0;border-top:1px solid var(--line)}
+.detail-row .sub{margin-top:4px;color:#132033}
 .kicker{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:800}
 
 /* Accordions ("Что означает этот статус?" / roadmap groups) */
@@ -107,7 +132,7 @@ select#doc-select{width:100%;border:1px solid var(--line);background:#fff}
 
 .evt-meta{display:flex;flex-direction:column;gap:9px;padding:13px 0;margin-bottom:14px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 .evt-meta-row{display:flex;align-items:center;gap:9px;font-size:13.5px;color:#132033;font-weight:600}
-.evt-meta-ico{width:20px;text-align:center;flex:0 0 auto;color:var(--muted);font-size:14px}
+.evt-meta-ico{width:20px;display:inline-flex;justify-content:center;flex:0 0 auto;color:var(--muted)}
 
 .evt-slots{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
 .evt-slot{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;padding:12px 14px;border-radius:13px;border:1.5px solid var(--line);background:#fff;font-family:inherit;font-size:14px;font-weight:700;color:var(--navy);cursor:pointer;transition:border-color .15s ease,background .15s ease,color .15s ease}
