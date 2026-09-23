@@ -1,9 +1,17 @@
 import * as api from "../services/api.js";
 import { stageRoute } from "../utils/navigation.js";
+import { formatDate } from "../utils/format.js?v=3";
 
+// ЕДИНЫЕ МАРКЕРЫ (22.09.2026). Раньше у текущего этапа на тёмной плашке
+// показывалось эмодзи из конфига (✅, 🔵, 📅…): они разные на iPhone и
+// Android, синий кружок на синем фоне почти не виден, а ✅ читался как
+// «сделано». Теперь три состояния — три рисованных знака одной толщины:
+// галочка (сделано), белая точка с кольцом (сейчас), пусто (впереди).
+const STEP_DONE = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7.5"/></svg>';
+const STEP_CURRENT = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2" opacity=".55"/><circle cx="12" cy="12" r="3.6" fill="currentColor"/></svg>';
 function stepIconHtml(stage) {
-  if (stage.status === "done") return "✓";
-  if (stage.status === "current") return stage.icon || "•";
+  if (stage.status === "done") return STEP_DONE;
+  if (stage.status === "current") return STEP_CURRENT;
   return "";
 }
 
@@ -20,6 +28,12 @@ function stepsHtmlFor(stages) {
         <div class="road-title">
           <span class="num">${stepIconHtml(stage)}</span>${stage.title}${attendedBadge}
         </div>
+        ${
+          // ДАТЫ НА ПРОЙДЕННЫХ И ТЕКУЩЕМ (22.09.2026): «пройден 11 сентября»
+          // / «с 15 сентября» — из журнала смены этапов. Будущие — без даты.
+          stage.reachedAt && stage.status === "done" ? `<div class="road-date">пройден ${formatDate(stage.reachedAt)}</div>` :
+          stage.reachedAt && stage.status === "current" ? `<div class="road-date">с ${formatDate(stage.reachedAt)}</div>` : ""
+        }
         <div class="road-desc">${stage.description}</div>
       </div>`;
     })

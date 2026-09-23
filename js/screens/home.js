@@ -3,22 +3,57 @@ import { runCtaAction } from "../services/actions.js";
 import { formatDate, formatMoney, daysUntil, daysLabel, esc } from "../utils/format.js?v=3";
 import { stageRoute } from "../utils/navigation.js";
 
+function nearestEventFrom_(events) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  let best = null;
+  (events || []).forEach((ev) => {
+    if (ev.status === "declined" || ev.attended !== null) return;
+    const chosen = ev.chosenEventId ? ev.slots.find((s) => s.id === ev.chosenEventId) : null;
+    const candidates = chosen ? [chosen] : ev.slots;
+    candidates.forEach((s) => {
+      if (!s.date) return;
+      const d = new Date(s.date + "T00:00:00");
+      if (isNaN(d) || d < today) return;
+      const key = s.date + (s.time || "");
+      if (!best || key < best.key) best = { key, title: ev.title, date: s.date, time: s.time || "", groupId: ev.groupId, booked: !!chosen };
+    });
+  });
+  return best;
+}
+
 export async function render(container) {
-  const [dashboard] = await Promise.all([api.getDashboard()]);
-  const { currentStage, progress, action, nearestPayment, nearestBriefing } = dashboard;
+  // БЛИЖАЙШИЙ БРИФИНГ — ИЗ РЕАЛЬНЫХ ПРИГЛАШЕНИЙ (22.09.2026). Раньше он
+  // брался из листа Briefings, который пуст с момента создания, — у живых
+  // студентов блок не показывался никогда. Теперь — из «Событий»: ближайший
+  // будущий слот (выбранный студентом или самый ранний), если приглашение
+  // не отклонено. getEvents() кеширует ответ, лишнего запроса нет.
+  const [dashboard, events] = await Promise.all([api.getDashboard(), api.getEvents().catch(() => [])]);
+  const { currentStage, progress, action, nearestPayment, participant } = dashboard;
+  const nearestBriefing = nearestEventFrom_(events);
+  // ИМЯ ИЗ КОНТАКТА amoCRM (22.09.2026). Бэкенд отдаёт participant.firstName
+  // — это имя контакта сделки, а не её название (см. Webhooks.gs). Пусто —
+  // здороваемся без имени, как раньше.
+  // ПРИВЕТСТВИЕ (22.09.2026, формулировка владельца): «Добро пожаловать,
+  // Имя Фамилия, в программу Work & Travel USA» — без смайликов. Имя и
+  // фамилия приходят из контакта сделки amoCRM (participant.fullName,
+  // запасной вариант — firstName). Нет ни того, ни другого — без имени.
+  const имя = ((participant && (participant.fullName || participant.firstName)) || "").trim();
+  const greeting = имя
+    ? `Добро пожаловать, ${esc(имя)}, в программу Work & Travel USA`
+    : "Добро пожаловать в программу Work & Travel USA";
 
   const actionBlockHtml = action.actionRequired
     ? `
       <div class="card action">
         <div class="kicker">Сейчас</div>
-        <h2>🔴 ${action.title}</h2>
+        <h2><span class="sev-dot" style="background:var(--danger)"></span>${action.title}</h2>
         <div class="sub">${action.description}</div>
         ${action.cta ? `<button class="btn" style="margin-top:12px" data-cta="${action.cta.action}">${action.cta.label}</button>` : ""}
       </div>`
     : `
       <div class="card action" style="border-left-color:var(--ok)">
         <div class="kicker">Сейчас</div>
-        <h2>🟢 От вас ничего не требуется</h2>
+        <h2><span class="sev-dot" style="background:var(--ok)"></span>От вас ничего не требуется</h2>
         <div class="sub">Мы сообщим, когда статус изменится. Следующий шаг появится автоматически.</div>
       </div>`;
 
@@ -88,16 +123,9 @@ export async function render(container) {
   container.innerHTML = `
     <section class="screen active">
       <div class="card hero">
-        <!-- БЕЗ ИМЕНИ (03.09.2026). Здесь было «Добрый день, ${name}», где
-             name — это Participants.name, куда webhook кладёт НАЗВАНИЕ СДЕЛКИ
-             amoCRM (см. syncParticipantFromDeal_ в Webhooks.gs). Названия
-             сделок у нас служебные, так что приложение здоровалось со
-             студентом строкой вроде «SELF 2027 / Алматы / заявка 412».
-             Настоящее ФИО лежит в отдельном поле full_name, но оно
-             заполнено не у всех и в приветствии выглядит казённо. Пока в
-             amoCRM нет отдельного поля «имя для обращения» — здороваемся
-             без имени: это лучше, чем обратиться неправильно. -->
-        <div class="sub">Добрый день 👋</div>
+        <!-- Имя — только из контакта amoCRM (participant.firstName), никогда
+             из названия сделки; история вопроса — в CLAUDE.md, 03.09.2026. -->
+        <div class="sub">${greeting}</div>
         <h1>Моя программа</h1>
         <div class="row">
           <div>

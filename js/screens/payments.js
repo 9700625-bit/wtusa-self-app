@@ -1,6 +1,6 @@
 import * as api from "../services/api.js";
 import { paymentTagHtml } from "../components/statusBadge.js";
-import { formatDate, formatMoney, daysLabel } from "../utils/format.js?v=3";
+import { formatDate, formatMoney, daysLabel, esc } from "../utils/format.js?v=3";
 
 function timingText(p) {
   if (p.status === "paid" && p.paidDate) return `Оплачено ${formatDate(p.paidDate)}`;
@@ -14,7 +14,16 @@ function timingText(p) {
 }
 
 export async function render(container) {
-  const { paidTotal, programCost, payments, visaFees, visaFeesUnlocked } = await api.getPayments();
+  const { paidTotal, programCost, payments, visaFees, visaFeesUnlocked, fxRate } = await api.getPayments();
+  // КУРС НАЦБАНКА (22.09.2026). Бэкенд отдаёт официальный курс USD/KZT НБ РК
+  // (фид nationalbank.kz, обновляется раз в 6 часов). Для платежей в $ пишем
+  // ориентировочную сумму в тенге на сегодня и даём ссылку на страницу курсов.
+  // Точная сумма — по курсу на день оплаты, поэтому «≈». Нет курса — старая
+  // подпись без чисел.
+  const kzt = (usd) => Math.round(Number(usd) * fxRate.usdKzt).toLocaleString("ru-RU") + " ₸";
+  const rateText = fxRate && fxRate.usdKzt
+    ? `курс НБ РК ${fxRate.usdKzt.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₸/$` + (fxRate.date ? ` на ${esc(fxRate.date)}` : "")
+    : "";
 
   // Was previously left as `` when payments.length === 0, rendering a
   // visibly empty <div class="card"> — matches the empty-state pattern
@@ -27,9 +36,14 @@ export async function render(container) {
           // involved. Payments 2/3 are quoted in $ but paid in tenge, so the
           // exact tenge amount depends on the National Bank of RK's rate on the
           // day of payment — we don't try to compute it ourselves.
+          const showKzt = currency === "USD" && fxRate && fxRate.usdKzt && Number(p.amount) > 0 && p.status !== "paid";
           const rateNote =
             currency === "USD"
-              ? `<div class="small" style="margin-top:2px">Оплата в тенге по курсу Нацбанка РК на день оплаты</div>`
+              ? `<div class="small" style="margin-top:2px">${
+                  showKzt
+                    ? `≈ ${kzt(p.amount)} сегодня · ${rateText}. Оплата в тенге по курсу Нацбанка РК на день оплаты.`
+                    : "Оплата в тенге по курсу Нацбанка РК на день оплаты"
+                }</div>`
               : "";
           return `
       <div class="pay">
@@ -48,6 +62,9 @@ export async function render(container) {
         })
         .join("")
     : `<div class="sub">График платежей пока не сформирован — появится после оформления сделки.</div>`;
+  const rateLinkHtml = fxRate && fxRate.url
+    ? `<a class="link-row" href="${esc(fxRate.url)}" target="_blank" rel="noopener">Официальные курсы Нацбанка РК<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></a>`
+    : "";
 
   const feesHtml = visaFees
     .map((fee) => {
@@ -61,20 +78,27 @@ export async function render(container) {
       // Теперь: до этапа — «откроется», после — сумма. Отметку «оплачено /
       // не оплачено» ставим, только если она реально есть в VisaInfo;
       // выдумывать её нельзя — сборы платятся мимо нас, мы не можем знать.
+      //
+      // СУММА — ВСЕГДА (22.09.2026, по просьбе владельца). Студент должен
+      // заранее знать, сколько стоят сборы: SEVIS $35, Visa $185. До визового
+      // этапа показываем сумму и «оплата позже, на визовом этапе»; после —
+      // сумму и отметку, если она есть. Оба сбора платятся в тенге по курсу
+      // посольства — пишем это явно, как у платежей 2/3 про курс Нацбанка.
       const status = visaFeesUnlocked ? fee.status : "locked";
       const известен = status === "paid" || status === "unpaid";
       const dot = status === "paid" ? "ok" : visaFeesUnlocked ? "warn" : "wait";
+      const сумма = formatMoney(fee.amount, "USD");
       const note = !visaFeesUnlocked
-        ? "Откроется на визовом этапе"
+        ? `${сумма} · оплата на визовом этапе`
         : status === "paid"
-          ? "Оплачено"
+          ? `Оплачено · ${сумма}`
           : известен
-            ? `Не оплачено · ${formatMoney(fee.amount)}`
-            : formatMoney(fee.amount);
+            ? `Не оплачено · ${сумма}`
+            : сумма;
       return `
         <div class="status">
           <span class="dot ${dot}"></span>
-          <div><b>${fee.label}</b><div class="sub">${note}</div></div>
+          <div><b>${fee.label}</b><div class="sub">${note}</div><div class="sub">Оплата в тенге по курсу посольства США</div></div>
         </div>`;
     })
     .join("");
@@ -105,7 +129,7 @@ export async function render(container) {
           }
         </div>
       </div>
-      <div class="card">${paymentsHtml}</div>
+      <div class="card">${paymentsHtml}${rateLinkHtml}</div>
       <div class="card">
         <h3>Обязательные визовые сборы</h3>
         ${feesHtml}

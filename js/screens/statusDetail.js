@@ -3,7 +3,43 @@ import { runCtaAction } from "../services/actions.js";
 import { formatDate, daysUntil, daysLabel, esc } from "../utils/format.js?v=3";
 import { goBack } from "../router.js";
 
-const SEVERITY_EMOJI = { ok: "🟢", active: "🔵", wait: "⚪", warn: "🟡", danger: "🔴" };
+// ЦВЕТНАЯ ТОЧКА ВМЕСТО ЭМОДЗИ (22.09.2026): 🟢🔵🔴 рисуются по-разному на
+// iPhone/Android и не совпадают с остальной графикой. Теперь — обычный
+// кружок цветом важности, как точки в списках на других экранах.
+const SEVERITY_COLOR = { ok: "var(--ok)", active: "#3b6fe0", wait: "#b8c2d1", warn: "#e0a100", danger: "var(--danger)" };
+function severityDot(severity) {
+  const c = SEVERITY_COLOR[severity] || "#b8c2d1";
+  return `<span aria-hidden="true" style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${c};vertical-align:middle;margin:-3px 10px 0 0"></span>`;
+}
+
+/**
+ * «ЧТО ОЗНАЧАЕТ ЭТОТ СТАТУС?» → «ПОДРОБНЕЕ ОБ ЭТАПЕ» (22.09.2026).
+ * Раньше — свёрнутый <details>, внутри три абзаца, часть из которых слово
+ * в слово повторяла описание сверху. Теперь: на текущем этапе блок раскрыт
+ * сразу (это самое важное, что есть на экране), на остальных — свёрнут;
+ * строка, дублирующая описание, не показывается; пустые строки — тоже.
+ */
+function detailCardHtml(stage, isCurrentStage) {
+  const d = stage.detail || {};
+  const norm = (t) => String(t || "").trim().toLowerCase();
+  const rows = [
+    ["Что происходит", d.whatsHappening],
+    ["Что нужно от вас", d.whatRequired],
+    ["Что дальше", d.whatsNext],
+  ].filter(([, text]) => text && norm(text) !== norm(stage.description));
+  if (!rows.length) return "";
+  return `
+      <details class="card detail-card"${isCurrentStage ? " open" : ""}>
+        <summary><b>Подробнее об этапе</b><span class="detail-chevron" aria-hidden="true"></span></summary>
+        <div class="detail-body">
+          ${rows.map(([label, text]) => `
+          <div class="detail-row">
+            <div class="kicker">${label}</div>
+            <div class="sub">${esc(text)}</div>
+          </div>`).join("")}
+        </div>
+      </details>`;
+}
 
 export async function render(container, params) {
   const stageId = params[0];
@@ -15,7 +51,7 @@ export async function render(container, params) {
   }
 
   const { stage, isCurrentStage } = detail;
-  const emoji = SEVERITY_EMOJI[stage.severity] || "";
+  const emoji = severityDot(stage.severity);
 
   let extraHtml = "";
 
@@ -96,7 +132,7 @@ export async function render(container, params) {
     extraHtml += `
       <div class="card" style="border-left:4px solid var(--danger);padding-left:12px">
         <h3>Комментарий координатора</h3>
-        <div class="sub">💬 ${esc(stage.coordinatorComment)}</div>
+        <div class="sub"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:4px"><path d="M4 5.5h16v10H9l-4.5 3.5z"/></svg>${esc(stage.coordinatorComment)}</div>
       </div>`;
   }
 
@@ -124,8 +160,21 @@ export async function render(container, params) {
    * кнопкой не показал бы ничего.
    */
   const кнопки = [];
-  if (stage.cta) {
-    кнопки.push(`<button class="btn" data-cta="${stage.cta.action}">${stage.cta.label}</button>`);
+  // ГЛАВНАЯ КНОПКА — ТОЛЬКО НА ТЕКУЩЕМ ЭТАПЕ (22.09.2026). На пройденном
+  // этапе она оставалась активной: студент с этапа «Ищем работодателя» мог
+  // открыть предыдущий «Анкета CIEE проверена» и снова нажать «У меня есть
+  // Job Offer». То же с будущими этапами. Не текущий этап — только
+  // «Написать координатору» (writeCoordinator как главная кнопка остаётся).
+  const ctaЗакрыта = stage.cta && stage.cta.action !== "writeCoordinator" && !isCurrentStage;
+  if (stage.cta && !ctaЗакрыта) {
+    // stage.ctaDone — кнопка уже нажималась (флаг из state, см.
+    // deriveStageDetail). Рисуем серой, неактивной и без обработчика: второй
+    // раз отправить координатору нельзя ни с этого экрана, ни после перезахода.
+    кнопки.push(
+      stage.ctaDone
+        ? `<button class="btn" disabled data-cta-done="${stage.cta.action}">✓ Подтверждено — передано координатору</button>`
+        : `<button class="btn" data-cta="${stage.cta.action}">${stage.cta.label}</button>`
+    );
   }
   if (stage.secondaryCta) {
     кнопки.push(`<button class="btn secondary" data-cta="${stage.secondaryCta.action}">${stage.secondaryCta.label}</button>`);
@@ -143,19 +192,12 @@ export async function render(container, params) {
       <button class="btn secondary" id="back-btn" style="width:auto;padding:8px 14px;margin-bottom:12px">← Назад</button>
       <div class="card" style="border-left:4px solid ${severityBorderColor(stage.severity)};padding-left:12px">
         <div class="kicker">${isCurrentStage ? "Текущий этап" : "Этап пройден"}</div>
-        <h1>${emoji} ${stage.title}</h1>
+        <h1>${emoji}${stage.title}</h1>
         <div class="sub">${stage.description}</div>
         ${ctaHtml ? `<div style="margin-top:14px;display:grid;gap:8px">${ctaHtml}</div>` : ""}
       </div>
       ${extraHtml}
-      <details class="card">
-        <summary style="cursor:pointer;list-style:none"><b>Что означает этот статус?</b></summary>
-        <div style="margin-top:10px">
-          <div class="profile-row"><div class="kicker">Что происходит?</div><div class="sub" style="margin-top:4px">${stage.detail.whatsHappening}</div></div>
-          <div class="profile-row"><div class="kicker">Что требуется от меня?</div><div class="sub" style="margin-top:4px">${stage.detail.whatRequired}</div></div>
-          <div class="profile-row"><div class="kicker">Что будет дальше?</div><div class="sub" style="margin-top:4px">${stage.detail.whatsNext}</div></div>
-        </div>
-      </details>
+      ${detailCardHtml(stage, isCurrentStage)}
     </section>`;
 
   container.querySelector("#back-btn").addEventListener("click", goBack);
@@ -176,7 +218,7 @@ container.querySelectorAll("[data-cta]").forEach((btn) => {
       btn.disabled = true;
       try {
         await runCtaAction(btn.dataset.cta, { stageId: stage.id });
-        btn.textContent = "Подтверждено ✅";
+        btn.textContent = "✓ Подтверждено — передано координатору";
       } catch (err) {
         console.error("[statusDetail] confirmVisaReady failed:", err);
         btn.disabled = false;

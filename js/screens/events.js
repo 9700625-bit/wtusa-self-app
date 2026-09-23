@@ -39,6 +39,20 @@ const RU_WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 // screen -- render() clears it on every fresh fetch, which is fine since a
 // fresh fetch only ever happens after a real state change (a confirm/decline
 // round trip) that should reset the UI back to its default view anyway.
+
+// РИСОВАННЫЕ ЗНАЧКИ ВМЕСТО ЭМОДЗИ (22.09.2026): 📅 🕐 📍 👥 ✓ — у каждой
+// платформы свои картинки (на iPhone 📅 — наклейка «July 17»). Теперь
+// одинаковые линейные SVG, цвет — от родителя.
+const I = {
+  cal: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3.5v4M16 3.5v4"/><circle cx="8.3" cy="14.3" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="14.3" r="1" fill="currentColor" stroke="none"/><circle cx="15.7" cy="14.3" r="1" fill="currentColor" stroke="none"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
+  pin: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg>',
+  people: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><circle cx="16.5" cy="9.5" r="2.4"/><path d="M15.5 14.4c2.6.3 5 2 5 4.6"/></svg>',
+  check: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7.5"/></svg>',
+  dash: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg>',
+  clockBig: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
+};
+
 const cardState = new Map();
 
 function parseYMD(s) {
@@ -95,8 +109,29 @@ function getState(ev) {
   return cardState.get(ev.groupId);
 }
 
+/**
+ * ПРОШЕДШЕЕ МЕРОПРИЯТИЕ БЕЗ ОТМЕТКИ (22.09.2026).
+ *
+ * Пока координатор не проставил attended, карточка события с датой месяц
+ * назад выглядела как будущее: «Вы записаны», кнопки «Изменить время» и
+ * «Не смогу прийти» — на встречу, которая давно прошла. Теперь, если все
+ * слоты в прошлом, показываем спокойное «Мероприятие прошло» без кнопок;
+ * отметка «Вы посетили» появится, когда координатор её поставит.
+ */
+function isPastEvent(ev) {
+  if (!ev.slots || !ev.slots.length) return false;
+  const now = Date.now();
+  return ev.slots.every((s) => {
+    if (!s.date) return false;
+    const end = new Date(s.date + "T" + (s.time || "23:59") + ":00").getTime();
+    // Час запаса: встреча в 17:00 не должна «исчезать» ровно в 17:00.
+    return !isNaN(end) && end + 60 * 60 * 1000 < now;
+  });
+}
+
 function isSummaryView(ev, state) {
   if (ev.attended !== null) return true;
+  if (isPastEvent(ev)) return true;
   if (ev.status === "declined" && !state.overridePicker) return true;
   if (ev.status === "confirmed" && state.view !== "confirm" && !state.overridePicker) return true;
   return false;
@@ -287,7 +322,7 @@ function rosterPlaceholderHtml(item) {
   return `
     <div class="card" style="opacity:.55">
       <div class="evt-head">
-        <div class="evt-icon">📅</div>
+        <div class="evt-icon">${I.cal}</div>
         <div>
           <div class="evt-title">${item.title}</div>
           <div class="evt-desc">Ожидается — координатор пришлёт приглашение, когда подойдёт время.</div>
@@ -310,7 +345,7 @@ function cardInnerHtml(ev) {
   if (isSummaryView(ev, state)) return body;
   return `
     <div class="evt-head">
-      <div class="evt-icon">📅</div>
+      <div class="evt-icon">${I.cal}</div>
       <div>
         <div class="evt-title">${esc(ev.title)}</div>
         ${ev.description ? `<div class="evt-desc">${esc(ev.description)}</div>` : ""}
@@ -323,6 +358,7 @@ function cardBodyHtml(ev) {
   const state = getState(ev);
 
   if (ev.attended !== null) return doneBodyHtml(ev);
+  if (isPastEvent(ev)) return pastBodyHtml(ev);
   if (isSummaryView(ev, state)) {
     return ev.status === "declined" ? declinedBodyHtml(ev) : confirmedBodyHtml(ev);
   }
@@ -334,9 +370,25 @@ function cardBodyHtml(ev) {
 function doneBodyHtml(ev) {
   return `
     <div class="evt-done">
-      <div class="evt-done-ico ${ev.attended ? "ok" : "muted"}">${ev.attended ? "✓" : "—"}</div>
+      <div class="evt-done-ico ${ev.attended ? "ok" : "muted"}">${ev.attended ? I.check : I.dash}</div>
       <div class="evt-done-title">${ev.attended ? "Вы посетили" : "Мероприятие прошло"}</div>
       <div class="sub">${esc(ev.title)}</div>
+    </div>`;
+}
+
+/** Все слоты в прошлом, отметки посещения ещё нет — без кнопок. */
+function pastBodyHtml(ev) {
+  const slot = ev.slots.find((s) => s.id === ev.chosenEventId) || ev.slots[0];
+  const wasBooked = ev.status === "confirmed";
+  return `
+    <div class="evt-done">
+      <div class="evt-done-ico muted">${wasBooked ? I.clockBig : I.dash}</div>
+      <div class="evt-done-title">Мероприятие прошло</div>
+      <div class="sub">${esc(ev.title)}</div>
+    </div>
+    <div class="evt-meta" style="margin-top:14px">
+      <div class="evt-meta-row"><span class="evt-meta-ico">${I.clock}</span> ${formatDate(slot.date)}${slot.time ? " · " + slot.time : ""}</div>
+      ${wasBooked ? `<div class="sub" style="margin-top:6px">Вы были записаны. Отметка о посещении появится после проверки координатором.</div>` : ""}
     </div>`;
 }
 
@@ -345,13 +397,13 @@ function confirmedBodyHtml(ev) {
   const hasChoice = ev.slots.length > 1;
   return `
     <div class="evt-done">
-      <div class="evt-done-ico ok">✓</div>
+      <div class="evt-done-ico ok">${I.check}</div>
       <div class="evt-done-title">Вы записаны</div>
       <div class="sub">${esc(ev.title)}</div>
     </div>
     <div class="evt-meta" style="margin-top:14px">
-      <div class="evt-meta-row"><span class="evt-meta-ico">🕐</span> ${formatDate(slot.date)}${slot.time ? " · " + slot.time : ""}</div>
-      ${slot.location ? `<div class="evt-meta-row"><span class="evt-meta-ico">📍</span> ${esc(slot.location)}</div>` : ""}
+      <div class="evt-meta-row"><span class="evt-meta-ico">${I.clock}</span> ${formatDate(slot.date)}${slot.time ? " · " + slot.time : ""}</div>
+      ${slot.location ? `<div class="evt-meta-row"><span class="evt-meta-ico">${I.pin}</span> ${esc(slot.location)}</div>` : ""}
     </div>
     <div class="evt-links-row">
       ${hasChoice ? `<button type="button" data-change-time>Изменить время</button>` : ""}
@@ -362,7 +414,7 @@ function confirmedBodyHtml(ev) {
 function declinedBodyHtml(ev) {
   return `
     <div class="evt-done">
-      <div class="evt-done-ico muted">—</div>
+      <div class="evt-done-ico muted">${I.dash}</div>
       <div class="evt-done-title">Вы отказались</div>
       <div class="sub">${esc(ev.title)}</div>
     </div>
@@ -381,9 +433,9 @@ function confirmPanelHtml(ev, state, showBackLink) {
   const confirmLabel = full ? "Мест нет" : ev.status === "confirmed" ? "Подтвердить новое время" : "Записаться";
   return `
     <div class="evt-meta">
-      <div class="evt-meta-row"><span class="evt-meta-ico">🕐</span> ${formatDate(slot.date)}${slot.time ? " · " + slot.time : ""}</div>
-      ${slot.location ? `<div class="evt-meta-row"><span class="evt-meta-ico">📍</span> ${esc(slot.location)}</div>` : ""}
-      ${slot.spotsLeft !== null ? `<div class="evt-meta-row"><span class="evt-meta-ico">👥</span> ${full ? "мест нет" : "свободных мест: " + slot.spotsLeft}</div>` : ""}
+      <div class="evt-meta-row"><span class="evt-meta-ico">${I.clock}</span> ${formatDate(slot.date)}${slot.time ? " · " + slot.time : ""}</div>
+      ${slot.location ? `<div class="evt-meta-row"><span class="evt-meta-ico">${I.pin}</span> ${esc(slot.location)}</div>` : ""}
+      ${slot.spotsLeft !== null ? `<div class="evt-meta-row"><span class="evt-meta-ico">${I.people}</span> ${full ? "мест нет" : "свободных мест: " + slot.spotsLeft}</div>` : ""}
     </div>
     ${showBackLink ? `<button type="button" class="evt-back-link" data-back-to-calendar>‹ Выбрать другое время</button>` : ""}
     <div class="evt-actions" style="margin-top:12px">

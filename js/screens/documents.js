@@ -19,7 +19,7 @@ export async function render(container) {
         <div>
           <b>${doc.type}</b>
           <div class="small">${esc(doc.note)}</div>
-          ${doc.coordinatorComment ? `<div class="small" style="color:var(--danger);margin-top:4px">💬 ${esc(doc.coordinatorComment)}</div>` : ""}
+          ${doc.coordinatorComment ? `<div class="small" style="color:var(--danger);margin-top:4px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:4px"><path d="M4 5.5h16v10H9l-4.5 3.5z"/></svg>${esc(doc.coordinatorComment)}</div>` : ""}
         </div>
         ${docTagHtml(doc.status)}
       </div>`

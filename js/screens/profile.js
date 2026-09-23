@@ -52,14 +52,14 @@ export async function render(container) {
       <div class="card">
         <div class="kicker">Профиль</div>
         <h1>Участник</h1>
-        ${программаИСезон ? `<div class="sub">${программа ? "Program: " + программа : ""}${сезон ? (программа ? " · " : "") + "Season: " + сезон : ""}</div>` : ""}
+        ${программаИСезон ? `<div class="sub">${программа ? "Программа: " + программа : ""}${сезон ? (программа ? " · " : "") + "Сезон: " + сезон : ""}</div>` : ""}
       </div>
       <div class="card">
         ${строкаФИО}
         ${строкаПрограммы}
         ${строкаCieeId}
         ${строкаСтоимости}
-        <div class="profile-row"><div class="small">Telegram</div><b>${participant.telegramConnected ? "Подключён ✅" : "Не подключён"}</b></div>
+        <div class="profile-row"><div class="small">Telegram</div><b>${participant.telegramConnected ? 'Подключён <span class="sev-dot" style="background:var(--ok);margin:0 0 0 6px;width:10px;height:10px"></span>' : "Не подключён"}</b></div>
       </div>
       <div class="card">
         <h3>Ваш координатор</h3>
