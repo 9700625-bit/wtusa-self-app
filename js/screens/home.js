@@ -30,17 +30,11 @@ export async function render(container) {
   const [dashboard, events] = await Promise.all([api.getDashboard(), api.getEvents().catch(() => [])]);
   const { currentStage, progress, action, nearestPayment, participant } = dashboard;
   const nearestBriefing = nearestEventFrom_(events);
-  // ИМЯ ИЗ КОНТАКТА amoCRM (22.09.2026). Бэкенд отдаёт participant.firstName
-  // — это имя контакта сделки, а не её название (см. Webhooks.gs). Пусто —
-  // здороваемся без имени, как раньше.
-  // ПРИВЕТСТВИЕ (22.09.2026, формулировка владельца): «Добро пожаловать,
-  // Имя Фамилия, в программу Work & Travel USA» — без смайликов. Имя и
-  // фамилия приходят из контакта сделки amoCRM (participant.fullName,
-  // запасной вариант — firstName). Нет ни того, ни другого — без имени.
-  const имя = ((participant && (participant.fullName || participant.firstName)) || "").trim();
-  const greeting = имя
-    ? `Добро пожаловать, ${esc(имя)}, в программу Work & Travel USA`
-    : "Добро пожаловать в программу Work & Travel USA";
+  // ПРИВЕТСТВИЕ БЕЗ ИМЕНИ (23.09.2026, решение владельца). Имена в amoCRM
+  // вбиты вручную, на русском и казахском, местами с ошибками — показывать
+  // их студенту на главном экране рискованно. participant.fullName/firstName
+  // остаются в state для кабинета координатора и уведомлений.
+  const greeting = "Добро пожаловать в программу Work & Travel USA";
 
   const actionBlockHtml = action.actionRequired
     ? `
@@ -123,8 +117,7 @@ export async function render(container) {
   container.innerHTML = `
     <section class="screen active">
       <div class="card hero">
-        <!-- Имя — только из контакта amoCRM (participant.firstName), никогда
-             из названия сделки; история вопроса — в CLAUDE.md, 03.09.2026. -->
+        <!-- Приветствие без имени (решение владельца, 23.09.2026). -->
         <div class="sub">${greeting}</div>
         <h1>Моя программа</h1>
         <div class="row">
