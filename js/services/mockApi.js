@@ -37,6 +37,7 @@ function snapshotState() {
           briefings: db.briefings,
           visaInfo: db.visaInfo,
           preDepartureChecklist: db.preDepartureChecklist,
+          fxRate: { usdKzt: 535.12, date: "22.09.2026", url: "https://nationalbank.kz/ru/exchangerates/ezhednevnye-oficialnye-rynochnye-kursy-valyut" }, // демо-курс НБ РК
     };
 }
 

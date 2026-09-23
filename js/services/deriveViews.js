@@ -84,6 +84,8 @@ export function deriveRoadmap(state) {
       ...s,
       status: stageStatus(s.id, state.currentStageId),
       attended: attendedSet.has(s.id),
+      // Дата попадания на этап (Api.gs → stageDates из EventLog), 22.09.2026.
+      reachedAt: (state.stageDates && state.stageDates[s.id]) || null,
     })),
   }));
   // program/season отдаём наверх, чтобы экран «Путь» не подписывался
@@ -138,6 +140,20 @@ export function deriveStageDetail(state, stageId) {
     stage.coordinatorComment = state.participant.jobProblemComment;
   }
 
+  // ОДНОРАЗОВЫЕ КНОПКИ (22.09.2026). Бэкенд теперь отдаёт во state флаги
+  // participant.jobOfferReadyConfirmed / visaReadyConfirmed. Если кнопка
+  // этапа уже была нажата — помечаем, statusDetail.js рисует её серой и
+  // неактивной. Раньше блокировка жила только до перерисовки экрана.
+  if (stage.cta && state.participant) {
+    const p = state.participant;
+    if (
+      (stage.cta.action === "confirmJobOffer" && p.jobOfferReadyConfirmed) ||
+      (stage.cta.action === "confirmVisaReady" && p.visaReadyConfirmed)
+    ) {
+      stage.ctaDone = true;
+    }
+  }
+
   return {
     stage,
     status: stageStatus(stageId, state.currentStageId),
@@ -159,5 +175,6 @@ export function derivePayments(state) {
     payments: (state.payments || []).map((p) => ({ ...p, daysUntilDeadline: daysUntil(p.deadline) })),
     visaFees: state.visaFees,
     visaFeesUnlocked: currentOrder >= getStage("DS2019_ISSUED").order,
+    fxRate: state.fxRate || null, // { usdKzt, date, url } от Нацбанка РК или null
   };
 }

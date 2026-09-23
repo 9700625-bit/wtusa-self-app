@@ -198,12 +198,28 @@ export async function postSupport(message) {
  * чтобы кнопка оставалась «Подтверждено ✅» после перезахода) — сброс кеша
  * сюда надо вернуть, иначе экран будет показывать старое значение.
  */
+// ФЛАГИ ТЕПЕРЬ ЕСТЬ ВО STATE (22.09.2026): бэкенд отдаёт
+// participant.visaReadyConfirmed / jobOfferReadyConfirmed. После нажатия
+// кладём флаг в кеш на месте (patchState_), не сбрасывая всё состояние —
+// экран сразу рисует кнопку серой, и после перезахода она такой и остаётся.
+function markParticipantFlag_(поле) {
+    if (stateCache && stateCache.participant) {
+        patchState_("participant", { ...stateCache.participant, [поле]: true });
+    } else {
+        invalidateState();
+    }
+}
+
 export async function confirmVisaReady() {
-    return apiPost("confirmVisaReady", {});
+    const result = await apiPost("confirmVisaReady", {});
+    markParticipantFlag_("visaReadyConfirmed");
+    return result;
 }
 
 export async function confirmJobOffer() {
-    return apiPost("confirmJobOffer", {});
+    const result = await apiPost("confirmJobOffer", {});
+    markParticipantFlag_("jobOfferReadyConfirmed");
+    return result;
 }
 
 export async function getPreDepartureChecklist() {
