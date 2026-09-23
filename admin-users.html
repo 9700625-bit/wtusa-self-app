@@ -36,6 +36,12 @@ table.users tr:last-child td{border-bottom:0}
   cursor:pointer;opacity:.7}
 .logout-btn:hover{opacity:1}
 .top{display:flex;align-items:center;gap:12px}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font:inherit;font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer}
+.chip.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+.flags{margin-top:4px;display:flex;flex-wrap:wrap;gap:4px}
+.badge-stuck{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:3px 8px;background:#fff1e0;color:#b97000}
+.badge-wait{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:3px 8px;background:#eef2ff;color:#4966d8}
 </style>
 </head>
 <body>
@@ -162,11 +168,27 @@ function formatRelative(iso) {
   return `${months} мес. назад`;
 }
 
+const STUCK_DAYS = 14;
+let currentFilter = "all"; // all | stuck | overdue | stale
+function applyFilter_(list) {
+  const stuckDays = (u) => (u.stageSince ? daysSince(u.stageSince) : -1);
+  if (currentFilter === "stuck") return list.filter((u) => stuckDays(u) >= STUCK_DAYS).sort((a, b) => stuckDays(b) - stuckDays(a));
+  if (currentFilter === "overdue") return list.filter((u) => u.overduePayments > 0).sort((a, b) => b.overduePayments - a.overduePayments);
+  if (currentFilter === "stale") return list.filter((u) => daysSince(u.lastActivity) > STALE_DAYS);
+  return list;
+}
+function renderFilters() {
+  const items = [["all", "Все"], ["stuck", `На этапе ${STUCK_DAYS}+ дней`], ["overdue", "Просрочка оплаты"], ["stale", "Не заходили"]];
+  return `<div class="filters">${items.map(([k, label]) => `<button type="button" class="chip${currentFilter === k ? " active" : ""}" data-filter="${k}">${label}</button>`).join("")}</div>`;
+}
+
 function renderStats(list) {
   const total = list.length;
   const activeWeek = list.filter((u) => daysSince(u.lastActivity) <= 7).length;
   const stale = list.filter((u) => daysSince(u.lastActivity) > STALE_DAYS).length;
+  const stuck = list.filter((u) => u.stageSince && daysSince(u.stageSince) >= STUCK_DAYS).length;
   document.getElementById("stats-row").innerHTML = `
+    <div class="stat-tile"><div class="num">${stuck}</div><div class="label">На этапе ${STUCK_DAYS}+ дней</div></div>
     <div class="stat-tile"><div class="num">${total}</div><div class="label">Всего подключено</div></div>
     <div class="stat-tile"><div class="num">${activeWeek}</div><div class="label">Активны за 7 дней</div></div>
     <div class="stat-tile"><div class="num">${stale}</div><div class="label">Не заходили ${STALE_DAYS}+ дней</div></div>`;
@@ -182,15 +204,27 @@ function renderTable(filterText) {
     return;
   }
 
-  const rows = filtered
+  // «КТО ЗАСТРЯЛ» (22.09.2026). Бэкенд теперь отдаёт stageSince (с какой
+  // даты на текущем этапе), overduePayments и unansweredInvites. Считаем
+  // дни на этапе, подсвечиваем 14+ и сортируем «застрявших» наверх, когда
+  // включён фильтр. Фильтры — кнопки над таблицей (см. renderFilters).
+  const stuckList = applyFilter_(filtered);
+  const rows = stuckList
     .map((u) => {
       const stale = daysSince(u.lastActivity) > STALE_DAYS;
+      const onStage = u.stageSince ? Math.floor(daysSince(u.stageSince)) : null;
+      const stuck = onStage !== null && onStage >= STUCK_DAYS;
       const stageLabel = STAGE_TITLE.get(u.stage) || u.stage || "—";
       const programLine = [u.program, u.season].filter(Boolean).join(" · ") || "—";
+      const flags = [
+        stuck ? `<span class="badge-stuck">на этапе ${onStage} дн.</span>` : "",
+        u.overduePayments ? `<span class="badge-stale">просрочено платежей: ${u.overduePayments}</span>` : "",
+        u.unansweredInvites ? `<span class="badge-wait">без ответа на приглашение: ${u.unansweredInvites}</span>` : "",
+      ].filter(Boolean).join("");
       return `
         <tr>
-          <td><b>${esc(u.name)}</b><div class="muted">${esc(programLine)}</div></td>
-          <td>${esc(stageLabel)}</td>
+          <td><b>${esc(u.name)}</b><div class="muted">${esc(programLine)}</div>${flags ? `<div class="flags">${flags}</div>` : ""}</td>
+          <td>${esc(stageLabel)}${onStage !== null ? `<div class="muted">${onStage === 0 ? "сегодня" : onStage + " дн."}</div>` : ""}</td>
           <td>${formatDate(u.createdAt)}</td>
           <td>${formatRelative(u.lastActivity)}${stale ? '<span class="badge-stale">давно не заходил</span>' : ""}</td>
         </tr>`;
@@ -198,12 +232,14 @@ function renderTable(filterText) {
     .join("");
 
   wrap.innerHTML = `
+    ${renderFilters()}
     <div style="overflow-x:auto">
     <table class="users">
       <thead><tr><th>Участник</th><th>Этап</th><th>Регистрация</th><th>Последняя активность</th></tr></thead>
-      <tbody>${rows}</tbody>
+      <tbody>${rows || `<tr><td colspan="4" class="muted" style="padding:14px">По этому фильтру никого.</td></tr>`}</tbody>
     </table>
     </div>`;
+  wrap.querySelectorAll("[data-filter]").forEach((b) => b.addEventListener("click", () => { currentFilter = b.dataset.filter; renderTable(filterText); }));
 }
 
 async function loadUsers() {

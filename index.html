@@ -4,6 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Work & Travel USA — SELF</title>
+  <!-- ОДИН ШРИФТ ВЕЗДЕ (22.09.2026). В css/styles.css первым стоял Inter, но
+       сам шрифт никогда не подключался — на телефоне всё падало на системный,
+       а кнопки/поля местами брали ещё и «свой» системный шрифт формы. Теперь
+       Inter подключён явно (кириллица, 4 начертания, display=swap — текст
+       виден сразу системным и через долю секунды переключается), а все
+       элементы форм наследуют шрифт страницы (см. reset в styles.css).
+       preconnect экономит рукопожатие: ~100 мс на первом открытии. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" />
   <link rel="stylesheet" href="css/styles.css" />
   <!-- Иконка вкладки. Инлайном, чтобы не тратить отдельный запрос и не
        ловить 404 на /favicon.ico, который браузер просит сам. -->

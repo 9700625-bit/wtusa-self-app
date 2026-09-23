@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Кабинет координатора — ABC Universe</title>
+  <link rel="stylesheet" href="css/styles.css" />
+  <style>
+    /* ОДИН ВХОД — ТРИ ИНСТРУМЕНТА (22.09.2026). Раньше admin.html,
+       admin-events.html и admin-users.html были тремя адресами с тремя
+       экранами входа. Здесь — одна страница с вкладками; каждая вкладка
+       показывает прежнюю страницу во фрейме. Пароль вводится один раз: он
+       хранится в sessionStorage, а фреймы того же сайта читают его сами и
+       входят автоматически. Сами страницы не менялись — их можно открывать
+       и по старым адресам. */
+    html,body{height:100%}
+    body{display:flex;flex-direction:column}
+    .app{max-width:none;width:100%;flex:1;display:flex;flex-direction:column;padding:0}
+    .panel-top{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--navy);color:#fff}
+    .panel-top b{font-size:15px}
+    .panel-tabs{display:flex;gap:4px;margin-left:auto}
+    .panel-tab{border:1px solid rgba(255,255,255,.25);background:transparent;color:#fff;border-radius:999px;padding:7px 14px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;opacity:.8}
+    .panel-tab.active{background:#fff;color:var(--navy);opacity:1}
+    .panel-logout{margin-left:8px;border:0;background:rgba(255,255,255,.12);color:#fff;border-radius:8px;padding:7px 10px;font:inherit;font-size:12.5px;cursor:pointer}
+    .frames{flex:1;position:relative;background:var(--bg)}
+    .frames iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:none;background:#fff}
+    .frames iframe.active{display:block}
+    #gate{max-width:340px;margin:80px auto;padding:0 16px}
+    @media (max-width:560px){
+      .panel-top{flex-wrap:wrap}
+      .panel-tabs{margin-left:0;width:100%;order:3}
+      .panel-tab{flex:1;text-align:center;padding:8px 6px;font-size:12.5px}
+    }
+  </style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="card">
+    <h2>Кабинет координатора</h2>
+    <div class="field">
+      <label for="secret-input" style="display:block;font-size:13px;font-weight:700;margin-bottom:6px">Секретный код</label>
+      <input id="secret-input" type="password" placeholder="ADMIN_SECRET" style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:10px 12px" />
+    </div>
+    <button class="btn" id="gate-submit">Войти</button>
+    <div class="sub" style="margin-top:10px">Один вход — для привязки студентов, мероприятий и списка участников.</div>
+  </div>
+</div>
+
+<div class="app" id="main" style="display:none">
+  <div class="panel-top">
+    <b>ABC Universe · координатор</b>
+    <div class="panel-tabs">
+      <button type="button" class="panel-tab active" data-tab="link">Привязка</button>
+      <button type="button" class="panel-tab" data-tab="events">Мероприятия</button>
+      <button type="button" class="panel-tab" data-tab="users">Студенты</button>
+    </div>
+    <button type="button" class="panel-logout" id="logout-btn">Выйти</button>
+  </div>
+  <div class="frames">
+    <iframe data-tab="link" class="active" title="Привязка студентов"></iframe>
+    <iframe data-tab="events" title="Мероприятия и посещаемость"></iframe>
+    <iframe data-tab="users" title="Студенты"></iframe>
+  </div>
+</div>
+
+<script>
+  // Тот же ключ, что и во всех трёх страницах — они войдут сами.
+  const SECRET_KEY = "wtusa_admin_secret";
+  const SRC = { link: "admin.html", events: "admin-events.html", users: "admin-users.html" };
+  const gateEl = document.getElementById("gate");
+  const mainEl = document.getElementById("main");
+
+  function showMain() {
+    gateEl.style.display = "none";
+    mainEl.style.display = "flex";
+    // Фреймы грузим лениво: активный — сразу, остальные — при первом открытии.
+    activate(location.hash.replace("#", "") || "link");
+  }
+
+  function activate(tab) {
+    if (!SRC[tab]) tab = "link";
+    document.querySelectorAll(".panel-tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+    document.querySelectorAll(".frames iframe").forEach((f) => {
+      const on = f.dataset.tab === tab;
+      f.classList.toggle("active", on);
+      if (on && !f.src) f.src = SRC[tab];
+    });
+    history.replaceState(null, "", "#" + tab);
+  }
+
+  document.querySelectorAll(".panel-tab").forEach((b) => b.addEventListener("click", () => activate(b.dataset.tab)));
+  document.getElementById("logout-btn").addEventListener("click", () => {
+    sessionStorage.removeItem(SECRET_KEY);
+    location.reload();
+  });
+
+  const input = document.getElementById("secret-input");
+  function tryEnter() {
+    const value = input.value.trim();
+    if (!value) return;
+    sessionStorage.setItem(SECRET_KEY, value);
+    showMain(); // проверка кода — на первой же загрузке вкладки: при ошибке она сама покажет «Не удалось войти»
+  }
+  document.getElementById("gate-submit").addEventListener("click", tryEnter);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") tryEnter(); });
+
+  if (sessionStorage.getItem(SECRET_KEY)) showMain();
+</script>
+</body>
+</html>
