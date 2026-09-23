@@ -116,7 +116,7 @@ export const payments = [
 export const programCost = 2850;
 
 export const visaFees = [
-  { id: "fee_sevis", label: "SEVIS Fee", amount: 220, status: "locked" }, // locked | unpaid | paid
+  { id: "fee_sevis", label: "SEVIS Fee", amount: 35, status: "locked" }, // locked | unpaid | paid
   { id: "fee_visa", label: "Visa Fee", amount: 185, status: "locked" },
 ];
 
