@@ -44,7 +44,19 @@ export function deriveActionCard(state) {
     description: stage.description,
     severity: stage.severity,
     cta: stage.cta,
+    // ОДНОРАЗОВАЯ КНОПКА И НА ГЛАВНОЙ (23.09.2026). 22.09 флаг «уже нажато»
+    // подключили только к экрану этапа; карточка «Сейчас» на главной
+    // рисовала кнопку активной снова и снова. Тот же флаг — сюда.
+    ctaDone: ctaAlreadyDone_(stage, state.participant),
   };
+}
+
+function ctaAlreadyDone_(stage, participant) {
+  if (!stage || !stage.cta || !participant) return false;
+  return (
+    (stage.cta.action === "confirmJobOffer" && !!participant.jobOfferReadyConfirmed) ||
+    (stage.cta.action === "confirmVisaReady" && !!participant.visaReadyConfirmed)
+  );
 }
 
 function nearestPayment(state) {
@@ -144,15 +156,7 @@ export function deriveStageDetail(state, stageId) {
   // participant.jobOfferReadyConfirmed / visaReadyConfirmed. Если кнопка
   // этапа уже была нажата — помечаем, statusDetail.js рисует её серой и
   // неактивной. Раньше блокировка жила только до перерисовки экрана.
-  if (stage.cta && state.participant) {
-    const p = state.participant;
-    if (
-      (stage.cta.action === "confirmJobOffer" && p.jobOfferReadyConfirmed) ||
-      (stage.cta.action === "confirmVisaReady" && p.visaReadyConfirmed)
-    ) {
-      stage.ctaDone = true;
-    }
-  }
+  if (ctaAlreadyDone_(stage, state.participant)) stage.ctaDone = true;
 
   return {
     stage,
@@ -165,12 +169,23 @@ export function deriveStageDetail(state, stageId) {
 export function derivePayments(state) {
   // Only USD-denominated payments count toward the top "Оплачено" figure —
   // Payment 1 is pure KZT with no $ amount, so it can't be summed in.
-  const paidTotal = (state.payments || [])
-    .filter((p) => p.status === "paid" && (p.currency || "USD") === "USD")
+  const paid = (state.payments || []).filter((p) => p.status === "paid");
+  const paidTotal = paid
+    .filter((p) => (p.currency || "USD") === "USD")
+    .reduce((s, p) => s + Number(p.amount || 0), 0);
+  // «ОПЛАЧЕНО $0» ПРИ ОПЛАЧЕННОМ ПЕРВОМ ПЛАТЕЖЕ (найдено прогоном 23.09.2026).
+  // Первый платёж — в тенге, в долларовую сумму не попадал, и студент,
+  // заплативший 200 000 ₸, видел наверху «$0». Теперь отдельно — сумма в
+  // тенге и счётчик «1 из 3»; экран показывает то, что есть.
+  const paidTotalKzt = paid
+    .filter((p) => p.currency === "KZT")
     .reduce((s, p) => s + Number(p.amount || 0), 0);
   const currentOrder = safeCurrentStage_(state.currentStageId).order;
   return {
     paidTotal,
+    paidTotalKzt,
+    paidCount: paid.length,
+    paymentsCount: (state.payments || []).length,
     programCost: state.programCost,
     payments: (state.payments || []).map((p) => ({ ...p, daysUntilDeadline: daysUntil(p.deadline) })),
     visaFees: state.visaFees,

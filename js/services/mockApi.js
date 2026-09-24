@@ -89,6 +89,10 @@ export function postSupport(message) {
     return delay({ ok: true });
 }
 
+export function reportClientError() {
+    return delay({ ok: true }); // в демо-режиме некуда слать
+}
+
 /** POST /confirmVisaReady — Final Call: студент подтверждает готовность к интервью */
 export function confirmVisaReady() {
     db.participant.visaReadyConfirmed = true;

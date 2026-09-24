@@ -62,6 +62,9 @@ export async function getBriefings() {
 export async function postSupport(message) {
     return (await backend_()).postSupport(message);
 }
+export async function reportClientError(payload) {
+    return (await backend_()).reportClientError(payload);
+}
 export async function confirmVisaReady() {
     return (await backend_()).confirmVisaReady();
 }

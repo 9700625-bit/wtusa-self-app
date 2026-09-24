@@ -181,6 +181,11 @@ export async function postSupport(message) {
     return apiPost("support", { message });
 }
 
+/** Ошибка JavaScript на экране → владельцу в Telegram (см. clientError_ в Api.gs). */
+export async function reportClientError(payload) {
+    return apiPost("clientError", payload);
+}
+
 /**
  * СОСТОЯНИЕ НЕ СБРАСЫВАЕМ (14.09.2026).
  *
