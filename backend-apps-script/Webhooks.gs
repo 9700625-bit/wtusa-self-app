@@ -28,10 +28,51 @@ function handleAmoWebhook(params) {
       results.push({ dealId: dealId, result: syncDealToSheets(dealId) });
     } catch (err) {
       Logger.log("Failed to sync deal %s from webhook: %s", dealId, err);
+      reportError_("webhook:deal " + dealId, err);
       results.push({ dealId: dealId, error: String(err) });
     }
   });
+  // АВТОПРИВЯЗКА ПО ЭТАПУ (24.09.2026). Сделка попала в этап «Отправить
+  // ссылку в приложение» — вебхук сам зовёт autoLinkDeal_ (Api.gs). Salesbot
+  // здесь не подошёл: для сделок без контакта он не запускается, а его
+  // работу не видно ни в логах, ни в карточке — проверить нельзя.
+  autoLinkDealIds_(params).forEach((dealId) => {
+    try {
+      // Один раз на сделку: если ссылка уже выписывалась (автоматически или
+      // координатором из admin.html) — повторно не шлём, даже если старая
+      // истекла. Повторную отправку делает координатор вручную.
+      const issued = getRows("LinkTokens").some((t) => String(t.amo_deal_id) === String(dealId));
+      const r = issued ? { skipped: true, reason: "link already issued" } : autoLinkDeal_(dealId);
+      Logger.log("autoLink from webhook for deal %s: %s", dealId, JSON.stringify(r));
+      results.push({ dealId: dealId, autoLink: r });
+    } catch (err) {
+      Logger.log("autoLink from webhook failed for deal %s: %s", dealId, err);
+      reportError_("webhook:autoLink " + dealId, err);
+      results.push({ dealId: dealId, autoLinkError: String(err) });
+    }
+  });
   return { processed: results };
+}
+
+/**
+ * Сделки из вебхука, которые ТОЛЬКО ЧТО попали в этап автопривязки
+ * (Script Property AUTOLINK_STATUS_ID, по умолчанию 88848478 — «Отправить
+ * ссылку в приложение»). Берём любое событие сделки (status/add/update) —
+ * amoCRM склеивает быстрые изменения и может прислать только update; от
+ * повторов защищает проверка LinkTokens выше и autoLinkDeal_.
+ */
+function autoLinkDealIds_(params) {
+  const target = String(CFG_OPTIONAL("AUTOLINK_STATUS_ID", "88848478"));
+  if (!target) return [];
+  const ids = new Set();
+  Object.keys(params).forEach((key) => {
+    const m = key.match(/^leads\[(status|add|update)\]\[(\d+)\]\[status_id\]$/);
+    if (!m || String(params[key]) !== target) return;
+    const id = params["leads[" + m[1] + "][" + m[2] + "][id]"];
+    if (id) ids.add(String(id));
+  });
+  Logger.log("autoLinkDealIds_: keys=%s -> %s", Object.keys(params).filter((k) => /status_id|\]\[id\]$/.test(k)).join(","), ids.size);
+  return Array.from(ids);
 }
 
 /** Looks up a coordinator by amoCRM's numeric user id (the deal's "Ответственный"). */
@@ -46,6 +87,32 @@ function coordinatorForUserId_(userId) {
  * only when the stage actually changed since the last sync.
  */
 function syncDealToSheets(dealId) {
+  // HTTP — ДО ЗАМКА (22.09.2026). Запрос сделки в amoCRM (~0,5–1 с) и
+  // проверка воронки раньше выполнялись внутри критической секции: каждый
+  // вебхук, включая сделки из чужой воронки, держал общий замок на время
+  // сетевого запроса. При массовом добавлении студентов очередь на замок
+  // росла, и вебхуки, не дождавшиеся 30 с, молча пропускались. Теперь замок
+  // охватывает только чтение/запись Sheets — критическая секция короче
+  // примерно вдвое, чужие воронки замок вообще не трогают.
+  const deal = getDeal(dealId);
+  if (!deal) {
+    Logger.log("syncDealToSheets: deal %s not found in amoCRM (empty response).", dealId);
+    return { skipped: true, reason: "deal not found" };
+  }
+
+  const targetPipelineId = CFG_OPTIONAL("AMO_PIPELINE_ID", "");
+  if (targetPipelineId && String(deal.pipeline_id) !== String(targetPipelineId)) {
+    return { skipped: true, reason: "wrong pipeline", pipelineId: deal.pipeline_id };
+  }
+
+  // ЗАКРЫТЫЕ СДЕЛКИ (23.09.2026, решение владельца). «Успешно реализовано»
+  // (142) и «Закрыто и не реализовано» (143) — бывшие участники, новых строк
+  // в Participants им не заводим. Уже существующую строку (студент, который
+  // дошёл до конца программы) продолжаем синхронизировать как раньше.
+  if (isClosedAmoStatus_(deal.status_id) && !findRow("Participants", "amo_deal_id", dealId)) {
+    return { skipped: true, reason: "closed deal", statusId: deal.status_id };
+  }
+
   // amoCRM is known to fire the same webhook event twice in quick succession.
   // Without a lock, two concurrent executions can both read the OLD stage
   // before either writes the new one — each then thinks "the stage changed"
@@ -53,21 +120,22 @@ function syncDealToSheets(dealId) {
   // seen in Telegram. A script lock serializes deal syncs so the second
   // (redundant) delivery always sees the already-updated stage and skips
   // re-notifying.
-  const lock = LockService.getScriptLock();
-  const gotLock = lock.tryLock(10000);
-  if (!gotLock) {
-    Logger.log("syncDealToSheets: could not acquire lock for deal %s within 10s — skipping to avoid a duplicate write/notification.", dealId);
+  // ЗАМОК НА СДЕЛКУ, А НЕ НА ВЕСЬ СКРИПТ (22.09.2026). Общий LockService
+  // выстраивал ВСЕ вебхуки в одну очередь: при массовом переносе сделок
+  // часть не дожидалась 30 с и молча пропускалась (именно так amoCRM в итоге
+  // отключил вебхук — накопились таймауты). Теперь разные сделки
+  // синхронизируются параллельно, а очередь есть только у повторных
+  // вебхуков ОДНОЙ сделки — ровно там, где она нужна против дублей.
+  // Вернуть прежнее поведение без правки кода: Script Property
+  // SYNC_LOCK_GLOBAL = yes.
+  const lock = acquireDealLock_(dealId, 30000);
+  if (!lock) {
+    Logger.log("syncDealToSheets: could not acquire lock for deal %s within 30s — skipping to avoid a duplicate write/notification.", dealId);
+    const p_ = findRow("Participants", "amo_deal_id", dealId); if (p_) logEvent(p_.telegram_id, "amocrm_webhook", "sync_skipped_lock_timeout", "", "");
     return { skipped: true, reason: "lock timeout" };
   }
 
   try {
-    const deal = getDeal(dealId);
-
-    const targetPipelineId = CFG_OPTIONAL("AMO_PIPELINE_ID", "");
-    if (targetPipelineId && String(deal.pipeline_id) !== String(targetPipelineId)) {
-      return { skipped: true, reason: "wrong pipeline", pipelineId: deal.pipeline_id };
-    }
-
     const statusId = deal.status_id;
     const newStageId = stageIdForAmoStatus(statusId);
     if (!newStageId) {
@@ -84,9 +152,30 @@ function syncDealToSheets(dealId) {
 
     const coordinator = coordinatorForUserId_(deal.responsible_user_id);
 
+    // ИМЯ ДЛЯ ОБРАЩЕНИЯ (22.09.2026). Participants.name — это название
+    // сделки, поэтому приветствие по имени убрали 03.09. Настоящее имя есть у
+    // контакта сделки (он уже приходит в ?with=contacts). Запрашиваем его
+    // один раз — пока first_name пустой — и дальше не трогаем: лишний GET на
+    // каждый вебхук здесь не нужен.
+    let firstName = (previous && previous.first_name) || "";
+    let fullName = (previous && previous.full_name) || "";
+    if (!firstName || !fullName) {
+      try {
+        const n = contactNameForDeal_(deal);
+        if (n) {
+          firstName = firstName || n.firstName;
+          fullName = fullName || n.fullName; // «Имя Фамилия» из контакта — для приветствия
+        }
+      } catch (err) {
+        Logger.log("syncDealToSheets: contact name unavailable for deal %s: %s", dealId, err);
+      }
+    }
+
     upsertRow("Participants", "amo_deal_id", dealId, {
       current_stage_id: newStageId || oldStageId || "",
       name: deal.name || (previous && previous.name) || "",
+      first_name: firstName,
+      full_name: fullName,
       season: fieldGet("FIELD_ID_SEASON") || (previous && previous.season) || "",
       program: fieldGet("FIELD_ID_PROGRAM") || (previous && previous.program) || "",
       ciee_id: fieldGet("FIELD_ID_CIEE_ID") || (previous && previous.ciee_id) || "",
@@ -134,6 +223,18 @@ function syncDealToSheets(dealId) {
     if (participant && participant.telegram_id) {
       syncPaymentsFromDeal_(deal, participant);
       syncDocumentsFromDeal_(deal, participant);
+      syncVisaInfoFromDeal_(deal, participant);
+    }
+
+    // PUSH ПРИ НОВОМ КОММЕНТАРИИ К JOB OFFER (22.09.2026). Комментарий
+    // синкается в таблицу и лежит на экране, но студент о нём не узнавал,
+    // пока сам не откроет приложение. Шлём один раз — только когда текст
+    // изменился по сравнению с тем, что уже было в таблице.
+    const newComment = String(fieldGet("FIELD_ID_JOB_PROBLEM_COMMENT") || "").trim();
+    const oldComment = String((previous && previous.job_problem_comment) || "").trim();
+    if (participant && participant.telegram_id && newComment && newComment !== oldComment) {
+      sendTelegramMessage(participant.telegram_id, "💬 <b>Комментарий координатора по Job Offer</b>\n\n" + escapeTgHtml_(newComment) + "\n\nПодробности — в приложении.");
+      logEvent(participant.telegram_id, "amocrm_webhook", "job_comment_notified", oldComment, newComment);
     }
 
     if (newStageId && newStageId !== oldStageId) {
@@ -144,8 +245,46 @@ function syncDealToSheets(dealId) {
 
     return { oldStageId: oldStageId, newStageId: newStageId };
   } finally {
-    lock.releaseLock();
+    lock.release();
   }
+}
+
+/**
+ * Замок на конкретную сделку поверх CacheService (у Apps Script нет
+ * именованных замков). Оптимистичная схема: если ключа нет — кладём свой
+ * токен, ждём 60 мс и перечитываем; если там наш токен — замок наш. Два
+ * вебхука одной сделки в одну и ту же миллисекунду — единственный случай,
+ * когда оба могут «выиграть»; тогда второй увидит уже записанный этап и
+ * не пришлёт дубль (сравнение old/new). Срок ключа 90 с — на случай, если
+ * выполнение упало без release. SYNC_LOCK_GLOBAL=yes → прежний общий замок.
+ */
+/** amoCRM: 142 = «Успешно реализовано», 143 = «Закрыто и не реализовано» — одинаковы во всех воронках. */
+function isClosedAmoStatus_(statusId) {
+  const s = String(statusId);
+  return s === "142" || s === "143";
+}
+
+function acquireDealLock_(dealId, waitMs) {
+  if (String(CFG_OPTIONAL("SYNC_LOCK_GLOBAL", "")).toLowerCase() === "yes") {
+    const gl = LockService.getScriptLock();
+    if (!gl.tryLock(waitMs)) return null;
+    return { release: () => gl.releaseLock() };
+  }
+  const cache = CacheService.getScriptCache();
+  const key = "deal_lock:" + dealId;
+  const token = Utilities.getUuid();
+  const deadline = Date.now() + waitMs;
+  while (Date.now() < deadline) {
+    if (!cache.get(key)) {
+      cache.put(key, token, 90);
+      Utilities.sleep(60);
+      if (cache.get(key) === token) {
+        return { release: () => { if (cache.get(key) === token) cache.remove(key); } };
+      }
+    }
+    Utilities.sleep(250);
+  }
+  return null;
 }
 
 /* -------------------------------------- payments -------------------------------------- */
@@ -290,6 +429,86 @@ function syncVariablePayment3_(deal, participant) {
   if (status === "paid" && (!existing || existing.status !== "paid")) {
     notifyPaymentPaid_(participant, label);
   }
+}
+
+/* ---------------------------------- visa info ---------------------------------- */
+
+/**
+ * ДАТА ВИЗОВОГО ИНТЕРВЬЮ ИЗ amoCRM (22.09.2026).
+ *
+ * Лист VisaInfo был пуст с самого начала: его читали в трёх местах
+ * (обратный отсчёт, экран визы, статусы сборов), но не писал никто. Теперь
+ * источник — поля сделки:
+ *   FIELD_ID_VISA_INTERVIEW_DATE  — дата (обязательно, без неё ничего не пишем)
+ *   FIELD_ID_VISA_INTERVIEW_TIME  — текст «10:30» (необязательно)
+ *   FIELD_ID_VISA_LOCATION        — текст (необязательно)
+ *   FIELD_ID_VISA_RESULT          — список: содержит «Одобр» → approved,
+ *                                   «Отказ» → denied, иначе pending
+ * Пока Script Property с id поля даты не задан — функция ничего не делает.
+ * Остальные колонки VisaInfo (паспорт, сборы) не трогаем — у них пока нет
+ * источника, и затирать их пустотой нельзя.
+ */
+function syncVisaInfoFromDeal_(deal, participant) {
+  const dateFieldId = CFG_OPTIONAL("FIELD_ID_VISA_INTERVIEW_DATE", "");
+  if (!dateFieldId) return;
+
+  const appointment = parseAmoDate_(customFieldValue(deal, dateFieldId));
+  const timeFieldId = CFG_OPTIONAL("FIELD_ID_VISA_INTERVIEW_TIME", "");
+  const locationFieldId = CFG_OPTIONAL("FIELD_ID_VISA_LOCATION", "");
+  const resultFieldId = CFG_OPTIONAL("FIELD_ID_VISA_RESULT", "");
+
+  const existing = findRow("VisaInfo", "telegram_id", participant.telegram_id);
+  const data = { telegram_id: participant.telegram_id };
+
+  if (appointment) data.appointment_date = Utilities.formatDate(appointment, "GMT+5", "yyyy-MM-dd");
+  if (timeFieldId) {
+    const t = customFieldValue(deal, timeFieldId);
+    if (t) data.appointment_time = String(t);
+  }
+  if (locationFieldId) {
+    const loc = customFieldValue(deal, locationFieldId);
+    if (loc) data.location = String(loc);
+  }
+  if (resultFieldId) {
+    const raw = String(customFieldValue(deal, resultFieldId) || "").toLowerCase();
+    if (raw.indexOf("одобр") !== -1) data.result = "approved";
+    else if (raw.indexOf("отказ") !== -1) data.result = "denied";
+    else if (raw) data.result = "pending";
+  }
+  // Паспорт и сборы (22.09.2026): три поля сделки, опциональные.
+  //   FIELD_ID_PASSPORT_STATUS — список: «Готов»/«В посольстве»/… → ready | at_embassy | waiting
+  //   FIELD_ID_SEVIS_PAID, FIELD_ID_VISA_FEE_PAID — флажок/список «Да» → paid, иначе unpaid
+  const passportFieldId = CFG_OPTIONAL("FIELD_ID_PASSPORT_STATUS", "");
+  if (passportFieldId) {
+    const raw = String(customFieldValue(deal, passportFieldId) || "").toLowerCase();
+    if (raw.indexOf("готов") !== -1 || raw.indexOf("получ") !== -1) data.passport_status = "ready";
+    else if (raw.indexOf("посол") !== -1) data.passport_status = "at_embassy";
+    else if (raw) data.passport_status = "waiting";
+  }
+  const paidFlag = (prop) => {
+    const id = CFG_OPTIONAL(prop, "");
+    if (!id) return null;
+    const raw = customFieldValue(deal, id);
+    if (raw === null || raw === undefined || raw === "") return null;
+    const str = String(raw).toLowerCase();
+    return raw === true || str === "true" || str === "1" || str === "да" || str === "оплач" || str.indexOf("оплачен") !== -1 ? "paid" : "unpaid";
+  };
+  const sevis = paidFlag("FIELD_ID_SEVIS_PAID"); if (sevis) data.sevis_fee_status = sevis;
+  const visaFee = paidFlag("FIELD_ID_VISA_FEE_PAID"); if (visaFee) data.visa_fee_status = visaFee;
+
+  // Ничего нового — не пишем (иначе каждый вебхук делал бы лишнюю запись).
+  const keys = Object.keys(data).filter((k) => k !== "telegram_id");
+  if (!keys.length) return;
+  // Дата из листа приходит объектом Date — сравниваем в одном формате.
+  const same = (k) => {
+    const cur = existing[k];
+    const curStr = k === "appointment_date" && cur ? formatSheetDate_(cur) : String(cur || "");
+    return curStr === String(data[k]);
+  };
+  if (existing && keys.every(same)) return;
+
+  if (existing) updateRow("VisaInfo", existing._row, data);
+  else appendRow("VisaInfo", data);
 }
 
 /** amoCRM "date" custom fields usually come back as a unix-seconds number;
