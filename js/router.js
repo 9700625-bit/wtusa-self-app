@@ -89,6 +89,9 @@ async function render(force) {
     await renderFn(containerEl, params);
   } catch (err) {
     console.error("[router] screen render failed:", resolvedName, err);
+    // Мониторинг (23.09.2026): экран не отрисовался — это и есть тот баг, о
+    // котором владелец должен узнать раньше студента. Обработчик в app.js.
+    if (typeof window.__reportScreenError === "function") window.__reportScreenError(err, "screen:" + resolvedName);
     // ЧЕЛОВЕЧЕСКИЙ ТЕКСТ ОШИБКИ (02.09.2026).
     //
     // Здесь стояла временная заглушка, показывавшая студенту сырое сообщение

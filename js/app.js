@@ -15,6 +15,35 @@ import * as events from "./screens/events.js";
 
 initTelegram();
 
+/**
+ * МОНИТОРИНГ ОШИБОК НА ЭКРАНЕ (23.09.2026). Любая необработанная ошибка
+ * JavaScript или отклонённый промис уходит на бэкенд (clientError), а
+ * оттуда — владельцу в Telegram. Одна и та же ошибка за сеанс шлётся один
+ * раз; сетевые сбои (OFFLINE/TIMEOUT) не шлём — это не баг приложения, и
+ * отправить их всё равно не выйдет. Только в живом режиме.
+ */
+const reportedErrors_ = new Set();
+function reportClientError_(err, kind) {
+  try {
+    if (!isLiveBackendConfigured()) return;
+    const message = String((err && err.message) || err || "").slice(0, 300);
+    if (!message || /^(OFFLINE|TIMEOUT|BACKEND_HTML)$/.test(message)) return;
+    const key = kind + ":" + message;
+    if (reportedErrors_.has(key) || reportedErrors_.size > 5) return;
+    reportedErrors_.add(key);
+    api.reportClientError({
+      message: kind + ": " + message,
+      stack: String((err && err.stack) || "").slice(0, 400),
+      screen: (window.location.hash || "#home").slice(1, 40),
+      url: window.location.pathname,
+      ua: navigator.userAgent,
+    }).catch(() => {});
+  } catch (ignore) { /* мониторинг не должен ронять приложение */ }
+}
+window.__reportScreenError = reportClientError_;
+window.addEventListener("error", (e) => reportClientError_(e.error || e.message, "error"));
+window.addEventListener("unhandledrejection", (e) => reportClientError_(e.reason, "promise"));
+
 registerScreen("home", home.render);
 registerScreen("roadmap", roadmap.render);
 registerScreen("documents", documents.render);
