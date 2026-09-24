@@ -42,7 +42,13 @@ export async function render(container) {
         <div class="kicker">Сейчас</div>
         <h2><span class="sev-dot" style="background:var(--danger)"></span>${action.title}</h2>
         <div class="sub">${action.description}</div>
-        ${action.cta ? `<button class="btn" style="margin-top:12px" data-cta="${action.cta.action}">${action.cta.label}</button>` : ""}
+        ${
+          action.cta
+            ? action.ctaDone
+              ? `<button class="btn" style="margin-top:12px" disabled>✓ Подтверждено — передано координатору</button>`
+              : `<button class="btn" style="margin-top:12px" data-cta="${action.cta.action}">${action.cta.label}</button>`
+            : ""
+        }
       </div>`
     : `
       <div class="card action" style="border-left-color:var(--ok)">
@@ -146,15 +152,17 @@ container.querySelectorAll("[data-cta]").forEach((btn) => {
   btn.addEventListener("click", async () => {
     // Final Call — см. такой же комментарий в statusDetail.js: одноразовая кнопка,
     // блокируем её сразу, чтобы не ушло вторым запросом.
-    if (btn.dataset.cta === "confirmVisaReady") {
+    // Обе одноразовые кнопки (23.09.2026): блокируем сразу, после успеха —
+    // серая «Подтверждено», как на экране этапа; при ошибке возвращаем.
+    if (btn.dataset.cta === "confirmVisaReady" || btn.dataset.cta === "confirmJobOffer") {
       if (btn.disabled) return;
       const original = btn.textContent;
       btn.disabled = true;
       try {
         await runCtaAction(btn.dataset.cta, { stageId: action.stageId });
-        btn.textContent = "Подтверждено ✅";
+        btn.textContent = "✓ Подтверждено — передано координатору";
       } catch (err) {
-        console.error("[home] confirmVisaReady failed:", err);
+        console.error("[home] " + btn.dataset.cta + " failed:", err);
         btn.disabled = false;
         btn.textContent = original;
       }

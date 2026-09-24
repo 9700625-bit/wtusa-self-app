@@ -191,7 +191,12 @@ export async function render(container, params) {
     <section class="screen active">
       <button class="btn secondary" id="back-btn" style="width:auto;padding:8px 14px;margin-bottom:12px">← Назад</button>
       <div class="card" style="border-left:4px solid ${severityBorderColor(stage.severity)};padding-left:12px">
-        <div class="kicker">${isCurrentStage ? "Текущий этап" : "Этап пройден"}</div>
+        <div class="kicker">${
+          // «ЭТАП ПРОЙДЕН» У БУДУЩИХ ЭТАПОВ (найдено прогоном 23.09.2026):
+          // любой не текущий этап подписывался как пройденный, включая те, до
+          // которых студент ещё не дошёл. detail.status — done / current / upcoming.
+          isCurrentStage ? "Текущий этап" : detail.status === "done" ? "Этап пройден" : "Предстоит"
+        }</div>
         <h1>${emoji}${stage.title}</h1>
         <div class="sub">${stage.description}</div>
         ${ctaHtml ? `<div style="margin-top:14px;display:grid;gap:8px">${ctaHtml}</div>` : ""}

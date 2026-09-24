@@ -14,7 +14,13 @@ function timingText(p) {
 }
 
 export async function render(container) {
-  const { paidTotal, programCost, payments, visaFees, visaFeesUnlocked, fxRate } = await api.getPayments();
+  const { paidTotal, paidTotalKzt, paidCount, paymentsCount, programCost, payments, visaFees, visaFeesUnlocked, fxRate } = await api.getPayments();
+  // Наверху — что реально оплачено: доллары и/или тенге, либо «пока ничего».
+  const paidParts = [];
+  if (paidTotal > 0) paidParts.push(formatMoney(paidTotal, "USD"));
+  if (paidTotalKzt > 0) paidParts.push(formatMoney(paidTotalKzt, "KZT"));
+  const paidLabel = paidParts.length ? paidParts.join(" + ") : "пока нет";
+  const paidCounter = paymentsCount ? ` · ${paidCount} из ${paymentsCount}` : "";
   // КУРС НАЦБАНКА (22.09.2026). Бэкенд отдаёт официальный курс USD/KZT НБ РК
   // (фид nationalbank.kz, обновляется раз в 6 часов). Для платежей в $ пишем
   // ориентировочную сумму в тенге на сегодня и даём ссылку на страницу курсов.
@@ -109,7 +115,7 @@ export async function render(container) {
         <div class="kicker">Оплата</div>
         <h1>График платежей</h1>
         <div class="row">
-          <div><div class="small">Оплачено</div><div class="metric">${formatMoney(paidTotal, "USD")}</div></div>
+          <div><div class="small">Оплачено${paidCounter}</div><div class="metric">${paidLabel}</div></div>
           ${
             // ЛУЧШЕ НИЧЕГО, ЧЕМ НЕВЕРНАЯ ЦЕНА (14.09.2026).
             //
