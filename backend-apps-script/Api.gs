@@ -228,7 +228,10 @@ function doPost(e) {
     // e.parameter by Apps Script automatically).
     if (action === "amoWebhook") {
       if (!timingSafeEqual_(e.parameter.secret, CFG("WEBHOOK_SECRET"))) return jsonOutput_({ error: "bad secret" });
-      return jsonOutput_(handleAmoWebhook(e.parameter));
+      // 24.09.2026: событие ставится в очередь (WebhookQueue.gs) и обрабатывается
+      // триггером processAmoWebhookQueue раз в минуту — чтобы amoCRM всегда
+      // получал быстрый ответ и не отключал вебхук за «невалидный отклик».
+      return jsonOutput_(enqueueAmoWebhook_(e.parameter));
     }
 
     // amoCRM шлёт вебхуки POST-ом — тот же роут, что и в doGet (см. autoLinkDeal_).
