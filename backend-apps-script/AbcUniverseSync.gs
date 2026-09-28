@@ -362,9 +362,10 @@ function abcDailySync() {
     // abcPushOxanaCieeTransition_ выше).
     const r0 = abcPushOxanaCieeTransition_(false);
     const r1 = abcSyncStatusesAndPayments_(false);
+    const rPay3 = abcSyncPay3Deadlines_(false); // 28.09.2026, см. ниже
     const r2 = abcFlagRefusedStudents_(false);
     const r3 = abcGenerateSverkaReport_(false);
-    Logger.log("abcDailySync: %s", JSON.stringify({ r0: r0, r1: r1, r2: r2, r3: r3 }));
+    Logger.log("abcDailySync: %s", JSON.stringify({ r0: r0, r1: r1, rPay3: rPay3, r2: r2, r3: r3 }));
   } catch (err) {
     Logger.log("abcDailySync failed: %s", err);
     try { reportError_("abcDailySync", err, {}); } catch (ignore) {}
@@ -453,5 +454,104 @@ function abcPushOxanaCieeTransition_(dryRun) {
     failedSample: failed,
     dryRun: !!dryRun,
     sample: pushed.slice(0, 10),
+  };
+}
+
+/**
+ * СРОК 3-ГО ПЛАТЕЖА = «ДАТА ДОГОВОРА» + 4 МЕСЯЦА (28.09.2026, правило владельца:
+ * «3 платёж у всех 4 месяца, даты оформления — из таблицы»).
+ *
+ * Источник даты — колонка «Дата договора» листа «Студенты» (ABC_COL_.CONTRACT_DATE;
+ * соседняя колонка «Срок» — это договор + 5 дней, к 3-му платежу не относится),
+ * сопоставление сделки по телефону, как везде в этом файле. Раньше срок ставил
+ * syncDealToSheets как «день перехода в Оформились + 4 мес.» — на 1–14 дней позже
+ * договора. Тот fallback остаётся для новых сделок, которых ещё нет в таблице;
+ * этот шаг (в ЖИВОМ abcDailySync он называется rPay3) раз в сутки выравнивает.
+ *
+ * Что НЕ трогаем (чтобы не сломать ручные решения координатора и не показать
+ * студенту просрочку задним числом):
+ *   — если новая дата уже в прошлом (договоры прошлого года) — только отчёт;
+ *   — если в поле дата, отличающаяся больше чем на 14 дней, — ручная отсрочка;
+ *   — закрытые сделки, неоднозначный телефон, строки без даты договора.
+ * Запись пачками по 50 через PATCH /api/v4/leads.
+ * Первый прогон 28.09.2026: записано 107, совпадало 50, пропущено 13 (дата в
+ * прошлом) + 1 (ручная отсрочка, 31806493), не найдено в таблице 30.
+ */
+const ABC_PAY3_MAX_DRIFT_DAYS_ = 14;
+function abcParseSheetDate_(v) {
+  if (v instanceof Date && !isNaN(v)) return new Date(v.getFullYear(), v.getMonth(), v.getDate(), 12, 0, 0);
+  const m = String(v || "").trim().match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+  if (!m) return null;
+  let y = Number(m[3]); if (y < 100) y += 2000;
+  const d = new Date(y, Number(m[2]) - 1, Number(m[1]), 12, 0, 0);
+  return isNaN(d) ? null : d;
+}
+function abcAddMonthsClamped_(d, months) {
+  const t = new Date(d.getFullYear(), d.getMonth() + months, d.getDate(), 12, 0, 0);
+  if (t.getDate() !== d.getDate()) return new Date(d.getFullYear(), d.getMonth() + months + 1, 0, 12, 0, 0);
+  return t;
+}
+function abcSyncPay3Deadlines_(dryRun) {
+  const fid = CFG_OPTIONAL("FIELD_ID_PAY3_DEADLINE", "");
+  if (!fid) return { skipped: "FIELD_ID_PAY3_DEADLINE not set" };
+  const sh = abcSheet_("Студенты");
+  const vals = sh.getDataRange().getValues();
+  const byPhone = {};
+  for (let r = ABC_STUDENTS_FIRST_DATA_ROW_ - 1; r < vals.length; r++) {
+    const row = vals[r];
+    if (!row[ABC_COL_.PHONE]) continue;
+    const d = abcParseSheetDate_(row[ABC_COL_.CONTRACT_DATE]);
+    if (!d) continue;
+    const p = abcNormPhone_(row[ABC_COL_.PHONE]);
+    (byPhone[p] = byPhone[p] || []).push(d);
+  }
+  const phoneById = {};
+  abcFetchAmoData_().forEach((l) => { phoneById[String(l.id)] = l.phoneNorm; });
+  const leads = [];
+  for (let page = 1; ; page++) {
+    const resp = amoApiFetch_("/api/v4/leads?filter[pipeline_id][0]=" + ABC_PIPELINE_ID_ + "&limit=250&page=" + page, "get");
+    const it = resp && resp._embedded && resp._embedded.leads;
+    if (!it || !it.length) break;
+    leads.push.apply(leads, it);
+    if (it.length < 250) break;
+  }
+  const fmt = (d) => Utilities.formatDate(d, "GMT+5", "yyyy-MM-dd");
+  const today = fmt(new Date());
+  const updates = [], skippedPast = [], skippedManual = [];
+  let same = 0, unmatched = 0, ambiguous = 0;
+  leads.forEach((l) => {
+    if (l.status_id === 142 || l.status_id === 143) return;
+    const dates = byPhone[phoneById[String(l.id)]];
+    if (!dates) { unmatched++; return; }
+    const uniq = dates.map(fmt).filter((x, i, a) => a.indexOf(x) === i);
+    if (uniq.length > 1) { ambiguous++; return; }
+    const target = abcAddMonthsClamped_(dates[0], PAY_3_AUTO_DEADLINE_MONTHS_);
+    const tStr = fmt(target);
+    const cur = customFieldValue(l, fid);
+    const curStr = cur ? fmt(new Date(Number(cur) * 1000)) : "";
+    if (curStr === tStr) { same++; return; }
+    const info = { id: l.id, name: l.name, contract: fmt(dates[0]), was: curStr || "", to: tStr };
+    if (tStr < today) { skippedPast.push(info); return; }
+    if (curStr && Math.abs(new Date(curStr) - new Date(tStr)) / 86400000 > ABC_PAY3_MAX_DRIFT_DAYS_) { skippedManual.push(info); return; }
+    info.ts = Math.floor(target.getTime() / 1000);
+    updates.push(info);
+  });
+  let written = 0; const failed = [];
+  if (!dryRun) {
+    for (let i = 0; i < updates.length; i += 50) {
+      const chunk = updates.slice(i, i + 50);
+      try {
+        amoApiFetch_("/api/v4/leads", "patch", chunk.map((u) => ({ id: Number(u.id), custom_fields_values: [{ field_id: Number(fid), values: [{ value: u.ts }] }] })));
+        written += chunk.length;
+      } catch (e) {
+        failed.push({ from: i, error: String(e).slice(0, 200) });
+      }
+    }
+  }
+  return {
+    dryRun: !!dryRun, same: same, toWrite: updates.length, written: written, failed: failed,
+    unmatched: unmatched, ambiguous: ambiguous,
+    skippedPast: skippedPast, skippedManual: skippedManual,
+    sample: updates.slice(0, 5),
   };
 }
