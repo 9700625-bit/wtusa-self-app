@@ -127,3 +127,14 @@
 12. Прямые записи имён/статусов из amoCRM в таблицу координаторов без `safeCellValue_` (9.2).
 
 **Не проверено без владельца:** 4.2/4.3 (реальный WhatsApp на его номер), раздел 8 (ADMIN_SECRET), 5.10 (латентность `state` с реальным initData), 6.8 (Oksana-flow вживую), 4.8 (первая партия — снять после запуска).
+
+## Что сделано после отчёта (28.09, вечер) — Version 65
+
+- **P1-1 имена:** `contactNameForDeal_` (AmoCRM.gs) отбрасывает имя/фамилию без букв или с цифрами/точками/@/_. Разовая чистка: 43 строки `Participants` с мусорным `first_name`/`full_name` перезапрошены у amoCRM с новой логикой — у всех 43 контакт тоже без нормального имени, поля очищены; приветствие у них без имени, что честнее «Добрый день, 77475000746».
+- **P1-2 Айжан:** строка `12903926 / Айжан` добавлена в `Coordinators` (username и аватар пустые — при пустом username фронт подставляет `DEFAULT_COORDINATOR_TG`); `coordinator_name/tg/avatar` разово проставлены в 102 строки `Participants` по ответственному в CRM. **Владельцу:** вписать `telegram_username` и `avatar_url` Айжан в `Coordinators` — подхватится вебхуком при следующем событии по сделке.
+- **P1-3 дедуп «нет телефона»:** `autoLinkDeal_` — CacheService `autolink_nophone_<dealId>` на 24 ч, вторая задача не создаётся.
+- **P1-4 повтор события:** `processAmoWebhookQueue` — если в `result.processed[].error/autoLinkError` временная ошибка (`isTransientFetchError_`), событие кладётся обратно в очередь с `__attempt` (до 3), после третьей — `reportError_("processAmoWebhookQueue:gave-up")`.
+- **P2-6 откат этапа:** `syncDealToSheets` — при движении на более ранний этап (по индексу в `STAGE_IDS`, кроме выхода из `JOB_PROBLEM`) уходит нейтральный текст вместо «поздравления».
+- **Найдено по ходу, P1, исправлено:** тот же откат на «Оформились» безусловно ПЕРЕЗАПИСЫВАЛ `FIELD_ID_PAY3_DEADLINE` на «сегодня + 4 месяца» (условие `newStageId === "ENROLLED" && oldStageId !== "ENROLLED"`). Два реальных отката за неделю (23.09 и 28.09 14:44) сдвинули срок третьего платежа двум студентам — **владельцу проверить поле «срок оплаты 3» у сделок, которые возвращали на «Оформились» 23.09 и 28.09**. Теперь поле пишется только если пустое.
+- **P2-9:** `STAGE_IDS` в Config.gs — 23 этапа в порядке воронки.
+- Деплой: Version 65 (28.09 17:57), deployment ID/URL прежние; bad-secret и `state` без initData → JSON. Зеркало: `AmoCRM.gs` (amoApiFetch_/isTransientFetchError_/addDealNote_/contactNameForDeal_/createCoordinatorTask подтянуты из живого), `Api.gs`, `Webhooks.gs`, `WebhookQueue.gs`, `Config.gs` — правки внесены в те же места.
