@@ -468,7 +468,12 @@ function abcPushOxanaCieeTransition_(dryRun) {
  * договора. Тот fallback остаётся для новых сделок, которых ещё нет в таблице;
  * этот шаг (в ЖИВОМ abcDailySync он называется rPay3) раз в сутки выравнивает.
  *
- * Что НЕ трогаем (чтобы не сломать ручные решения координатора и не показать
+ * 28.09.2026 (вечер), решение владельца «4 месяца у всех»: исключения сняты —
+ * дата в прошлом и ручная дата (расхождение > 14 дней) теперь тоже
+ * выравниваются по правилу. Ручную отсрочку в поле CRM этот шаг перезапишет
+ * на следующую ночь. ABC_PAY3_MAX_DRIFT_DAYS_ больше не используется.
+ * Не трогаем только: закрытые сделки, неоднозначный телефон, строки без даты договора.
+ * (Было до этого:) Что НЕ трогаем (чтобы не сломать ручные решения координатора и не показать
  * студенту просрочку задним числом):
  *   — если новая дата уже в прошлом (договоры прошлого года) — только отчёт;
  *   — если в поле дата, отличающаяся больше чем на 14 дней, — ручная отсрочка;
@@ -531,8 +536,6 @@ function abcSyncPay3Deadlines_(dryRun) {
     const curStr = cur ? fmt(new Date(Number(cur) * 1000)) : "";
     if (curStr === tStr) { same++; return; }
     const info = { id: l.id, name: l.name, contract: fmt(dates[0]), was: curStr || "", to: tStr };
-    if (tStr < today) { skippedPast.push(info); return; }
-    if (curStr && Math.abs(new Date(curStr) - new Date(tStr)) / 86400000 > ABC_PAY3_MAX_DRIFT_DAYS_) { skippedManual.push(info); return; }
     info.ts = Math.floor(target.getTime() / 1000);
     updates.push(info);
   });
