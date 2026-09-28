@@ -71,11 +71,15 @@ function setProp(key, value) {
 // имён — wireUpSelfPipelineMapping() в Setup.gs хранит карту от 2026-08-23 под
 // СТАРЫЕ имена и требует пересборки после того, как статусы появятся в CRM.
 const STAGE_IDS = [
+  // Порядок = порядок статусов в воронке self и STAGES во фронте (28.09.2026:
+  // добавлены JOB_SEARCH, JOB_OFFER_UPLOAD_CIEE, JOB_OFFER_SENT_CIEE — их не
+  // хватало). Индекс используется, чтобы отличать движение вперёд от отката.
   "ENROLLED",
   "CIEE_REGISTRATION", "CIEE_ANKETA_REVIEW", "CIEE_FILLED",
-  "JOB_OFFER_SENT_INTL_REP", "JOB_OFFER_SUBMITTED_CIEE", "JOB_OFFER_HOST_REVIEW",
+  "JOB_SEARCH", "JOB_OFFER_SENT_INTL_REP", "JOB_OFFER_UPLOAD_CIEE", "JOB_OFFER_SENT_CIEE",
+  "JOB_OFFER_SUBMITTED_CIEE", "JOB_OFFER_HOST_REVIEW",
   "JOB_OFFER_PARTICIPANT_REVIEW", "JOB_OFFER_CIEE_FINAL_REVIEW", "JOB_PROBLEM",
-  "PLACEMENT_COMPLETED",
+  "PLACEMENT_COMPLETED", "SUBMIT_TO_CIEE",
   "DS2019_ISSUED",
   "DS160_STARTED", "DS160_REVIEW", "DS160_SUBMITTED",
   "VISA_INTERVIEW_SCHEDULED", "VISA_FINAL_CALL", "PASSPORT_READY", "VISA_APPROVED",

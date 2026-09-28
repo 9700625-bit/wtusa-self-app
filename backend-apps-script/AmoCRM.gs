@@ -99,17 +99,99 @@ function getAmoAccessToken_() {
 }
 
 function amoApiFetch_(path, method, payload) {
-  const resp = UrlFetchApp.fetch(amoBaseUrl_() + path, {
+  const url = amoBaseUrl_() + path;
+  const options = {
     method: method || "get",
     contentType: "application/json",
     headers: { Authorization: "Bearer " + getAmoAccessToken_() },
     payload: payload ? JSON.stringify(payload) : undefined,
     muteHttpExceptions: true,
-  });
-  const code = resp.getResponseCode();
-  if (code >= 300) throw new Error("amoCRM API " + code + ": " + resp.getContentText());
-  const text = resp.getContentText();
-  return text ? JSON.parse(text) : null;
+  };
+  const MAX_ATTEMPTS = 3;
+  let lastError = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let resp;
+    try {
+      resp = UrlFetchApp.fetch(url, options);
+    } catch (e) {
+      lastError = e;
+      if (!isTransientFetchError_(e) || attempt === MAX_ATTEMPTS) throw e;
+      Utilities.sleep(10000 * attempt);
+      continue;
+    }
+    const code = resp.getResponseCode();
+    if (code < 300) {
+      const text = resp.getContentText();
+      return text ? JSON.parse(text) : null;
+    }
+    lastError = new Error("amoCRM API " + code + ": " + resp.getContentText());
+    const retryable = code === 429 || code >= 500;
+    if (!retryable || attempt === MAX_ATTEMPTS) throw lastError;
+    Utilities.sleep(1000 * Math.pow(2, attempt - 1));
+  }
+  throw lastError;
+}
+
+/** Временный сбой самого UrlFetchApp (не HTTP-код), который имеет смысл повторить. */
+function isTransientFetchError_(e) {
+  const msg = String((e && e.message) || e);
+  return /Address unavailable|Bandwidth quota exceeded|timed out|timeout|DNS error|temporarily unavailable/i.test(msg);
+}
+
+/**
+ * Примечание в карточку сделки (22.09.2026). Действия студента в приложении
+ * — загрузка документа, запись на брифинг, сообщение в поддержку — раньше
+ * оставались только в Sheets, где координатор не живёт. Теперь каждое такое
+ * событие ложится в таймлайн сделки в amoCRM обычным текстовым примечанием.
+ * Ошибка здесь никогда не должна ломать действие студента — глотаем и логируем.
+ */
+function addDealNote_(dealId, text) {
+  if (!dealId || !text) return null;
+  try {
+    return amoApiFetch_("/api/v4/leads/" + dealId + "/notes", "post", [
+      { note_type: "common", params: { text: String(text) } },
+    ]);
+  } catch (err) {
+    Logger.log("addDealNote_ failed for deal %s: %s", dealId, err);
+    return null;
+  }
+}
+
+/** Имя и фамилия контакта сделки (для обращения к студенту). `deal` должен
+ * быть из getDeal() (нужен ?with=contacts). Отдельный запрос за контактом —
+ * поэтому вызывается только когда в Participants ещё нет first_name.
+ * Возвращает { firstName, lastName, fullName } или null. */
+function contactNameForDeal_(deal) {
+  const contacts = (deal && deal._embedded && deal._embedded.contacts) || [];
+  if (!contacts.length) return null;
+  const main = contacts.find((c) => c.is_main) || contacts[0];
+  const contact = amoApiFetch_("/api/v4/contacts/" + main.id, "get");
+  if (!contact) return null;
+  let first = String(contact.first_name || "").trim();
+  let last = String(contact.last_name || "").trim();
+  if (!first && contact.name) {
+    // В amoCRM имя часто вбито одной строкой «Имя Фамилия» без разбиения.
+    const parts = String(contact.name).trim().split(/\s+/);
+    first = parts[0] || "";
+    last = last || parts.slice(1).join(" ");
+  }
+  // ИМЯ БЕЗ БУКВ — НЕ ИМЯ (28.09.2026). Контакт в amoCRM создаётся из
+  // WhatsApp-профиля, и там вместо имени часто телефон («77475000746»),
+  // «a.albinaserikkyzy», «K.A» или «.». Проверка 28.09 нашла 68 таких строк —
+  // главная здоровалась «Добрый день, 77475000746». Оставляем только то, в
+  // чём есть буквы и нет цифр/точек/подчёркиваний/@; иначе first_name
+  // остаётся пустым и приветствие идёт без имени.
+  const looksLikeName = (s) => /\p{L}/u.test(s) && !/[\d.@_]/.test(s);
+  if (!looksLikeName(first)) first = "";
+  if (!looksLikeName(last)) last = "";
+  if (!first && !last) return null;
+  return { firstName: first, lastName: last, fullName: [first, last].filter(Boolean).join(" ") };
+}
+
+/** Совместимость: только имя. */
+function contactFirstNameForDeal_(deal) {
+  const n = contactNameForDeal_(deal);
+  return n ? n.firstName || null : null;
 }
 
 function getDeal(dealId) {
@@ -149,9 +231,18 @@ function updateDealCustomField(dealId, fieldId, value) {
 }
 
 /** Creates a coordinator task on a deal (ТЗ §64 escalations). */
-function createCoordinatorTask(dealId, text, dueInHours) {
+function createCoordinatorTask(dealId, text, dueInHours, responsibleUserId) {
   const completeTill = Math.floor(Date.now() / 1000) + (dueInHours || 24) * 3600;
-  return amoApiFetch_("/api/v4/tasks", "post", [
-    { entity_id: Number(dealId), entity_type: "leads", text: text, complete_till: completeTill },
-  ]);
+  let responsible = responsibleUserId ? Number(responsibleUserId) : null;
+  if (!responsible) {
+    try {
+      const deal = getDeal(dealId);
+      responsible = deal && deal.responsible_user_id ? Number(deal.responsible_user_id) : null;
+    } catch (err) {
+      Logger.log("createCoordinatorTask: could not read responsible for deal %s: %s", dealId, err);
+    }
+  }
+  const task = { entity_id: Number(dealId), entity_type: "leads", text: text, complete_till: completeTill };
+  if (responsible) task.responsible_user_id = responsible;
+  return amoApiFetch_("/api/v4/tasks", "post", [task]);
 }

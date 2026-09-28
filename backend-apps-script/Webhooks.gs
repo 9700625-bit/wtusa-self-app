@@ -240,7 +240,13 @@ function syncDealToSheets(dealId) {
     }
 
     if (newStageId && newStageId !== oldStageId) {
-      const text = STAGE_NOTIFY_TEXT[newStageId] || "Ваш статус в программе обновился — откройте приложение, чтобы посмотреть детали.";
+      // ОТКАТ НАЗАД (28.09.2026): если координатор вернул сделку на более
+      // ранний этап, «поздравительный» текст этого этапа неуместен — шлём
+      // нейтральный. Выход из ветки JOB_PROBLEM обратно в Job Offer — это
+      // движение вперёд (проблема снята), для него текст этапа оставляем.
+      const oldIdx = STAGE_IDS.indexOf(oldStageId), newIdx = STAGE_IDS.indexOf(newStageId);
+      const rollback = oldStageId && oldStageId !== "JOB_PROBLEM" && oldIdx !== -1 && newIdx !== -1 && newIdx < oldIdx;
+      const text = (!rollback && STAGE_NOTIFY_TEXT[newStageId]) || "Ваш статус в программе обновился — откройте приложение, чтобы посмотреть детали.";
       notifyParticipantByDealId(dealId, text);
       if (participant) logEvent(participant.telegram_id, "amocrm_webhook", "stage_changed", oldStageId, newStageId);
     }

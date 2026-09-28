@@ -205,6 +205,14 @@ function autoLinkDeal_(dealId) {
 
   const phone = contactPhoneForDeal_(deal);
   if (!phone) {
+    // ОДНА ЗАДАЧА, А НЕ ДВЕ (28.09.2026). amoCRM шлёт два события за одно
+    // перетаскивание (status + update); в ветке «есть телефон» повтор
+    // отсекает LinkTokens, здесь токена нет — поэтому дедуп через кэш на
+    // сутки. Воспроизведено на тестовой сделке: две одинаковые задачи.
+    const cache = CacheService.getScriptCache();
+    const key = "autolink_nophone_" + dealId;
+    if (cache.get(key)) return { error: "no phone on contact", dealId: dealId, taskSkipped: true };
+    cache.put(key, "1", 24 * 3600);
     try { createCoordinatorTask(dealId, "Автопривязка к приложению: у контакта нет телефона — отправьте ссылку вручную через admin.html.", 24, deal.responsible_user_id); } catch (err) { Logger.log("autoLink task failed: %s", err); }
     return { error: "no phone on contact", dealId: dealId };
   }

@@ -82,8 +82,25 @@ function processAmoWebhookQueue() {
         continue;
       }
       try {
-        handleAmoWebhook(params);
+        const result = handleAmoWebhook(params);
         done++;
+        // ПОВТОР ПРИ ВРЕМЕННОЙ ОШИБКЕ amoCRM (28.09.2026). handleAmoWebhook
+        // сам ловит ошибки по сделке и кладёт их в result.processed[].error —
+        // сюда исключение не долетает, и раньше событие с «Bandwidth quota
+        // exceeded»/«Address unavailable» (после 3 ретраев в amoApiFetch_)
+        // просто пропадало: для автопривязки сделка оставалась без ссылки и
+        // без задачи. Теперь такое событие кладётся обратно в очередь (до 3
+        // раз, счётчик в __attempt) и разбирается следующим запуском.
+        const errs = ((result && result.processed) || []).map(function (p) { return p.error || p.autoLinkError || ""; }).filter(Boolean);
+        const transient = errs.some(function (m) { return isTransientFetchError_({ message: m }); });
+        const attempt = Number(params.__attempt || 0);
+        if (transient && attempt < 3) {
+          params.__attempt = attempt + 1;
+          props.setProperty(WHQ_PREFIX_ + Date.now() + "_retry" + params.__attempt + "_" + Math.random().toString(36).slice(2, 6), JSON.stringify(params));
+          Logger.log("processAmoWebhookQueue: transient error, re-queued %s (attempt %s): %s", key, params.__attempt, errs[0]);
+        } else if (transient) {
+          try { reportError_("processAmoWebhookQueue:gave-up", new Error(errs[0]), { key: key }); } catch (ignore) {}
+        }
       } catch (err) {
         failed++;
         Logger.log("processAmoWebhookQueue: handleAmoWebhook failed for %s: %s", key, err);
