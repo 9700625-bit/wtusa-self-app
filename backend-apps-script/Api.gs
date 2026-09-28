@@ -196,7 +196,7 @@ function autoLinkDeal_(dealId) {
   if (participant && participant.telegram_id) return { skipped: true, reason: "already linked" };
 
   const alive = getRows("LinkTokens").some(
-    (t) => String(t.amo_deal_id) === dealId && t.used !== "yes" && t.expires_at && new Date(t.expires_at).getTime() > Date.now()
+    (t) => String(t.amo_deal_id) === dealId && t.used === "no" && t.expires_at && new Date(t.expires_at).getTime() > Date.now()
   );
   if (alive) return { skipped: true, reason: "active link already sent" };
 
@@ -213,7 +213,29 @@ function autoLinkDeal_(dealId) {
   const link = "https://t.me/" + CFG("TELEGRAM_BOT_USERNAME") + "/" + CFG("TELEGRAM_APP_NAME") + "?startapp=link_" + token;
   const text = autoLinkMessage_(link);
 
-  const result = sendWazzupWhatsApp_(phone, text);
+  // ОТПРАВКА НЕ УДАЛАСЬ — НЕ «СЖИГАЕМ» СДЕЛКУ (28.09.2026). Токен к этому
+  // моменту уже записан в LinkTokens, и без этой ветки все проверки «ссылка
+  // уже выписана» (здесь, в handleAmoWebhook и в bulkAutoLink) считали сделку
+  // обработанной: повторное перетаскивание в CRM ничего не слало, задачи
+  // координатору не было, студент не получал ничего — а единственный след
+  // уходил в Telegram владельца с лимитом 15 сообщений в сутки. Теперь: токен
+  // помечается used=failed (его никто не видел), координатору ставится
+  // задача, и повторная попытка из CRM/bulkAutoLink снова разрешена.
+  let result;
+  try {
+    result = sendWazzupWhatsApp_(phone, text);
+  } catch (err) {
+    try {
+      const t = findRow("LinkTokens", "token", token);
+      if (t) updateRow("LinkTokens", t._row, { used: "failed" });
+    } catch (e2) { Logger.log("autoLink: could not mark token failed: %s", e2); }
+    try {
+      createCoordinatorTask(dealId, "Автопривязка к приложению: не удалось отправить ссылку в WhatsApp на " + phone + " (" + String(err).slice(0, 160) + "). Отправьте ссылку вручную через admin.html.", 24, deal.responsible_user_id);
+    } catch (e3) { Logger.log("autoLink task failed: %s", e3); }
+    logEvent("", "amocrm_autolink", "link_send_failed", String(err).slice(0, 300), dealId);
+    try { reportError_("autoLink:whatsapp " + dealId, err); } catch (ignore) {}
+    return { error: "whatsapp send failed: " + String(err).slice(0, 200), dealId: dealId, phone: phone };
+  }
   addDealNote_(dealId, "🔗 Ссылка на подключение к приложению отправлена в WhatsApp автоматически (" + phone + ").");
   logEvent("", "amocrm_autolink", "link_sent", "", dealId);
   return { ok: true, dealId: dealId, phone: phone, wazzup: result };

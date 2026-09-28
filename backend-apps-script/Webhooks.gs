@@ -41,7 +41,9 @@ function handleAmoWebhook(params) {
       // Один раз на сделку: если ссылка уже выписывалась (автоматически или
       // координатором из admin.html) — повторно не шлём, даже если старая
       // истекла. Повторную отправку делает координатор вручную.
-      const issued = getRows("LinkTokens").some((t) => String(t.amo_deal_id) === String(dealId));
+      // used=failed — сообщение так и не ушло (autoLinkDeal_, 28.09.2026): такой
+      // токен не считается выписанной ссылкой, повторная попытка разрешена.
+      const issued = getRows("LinkTokens").some((t) => String(t.amo_deal_id) === String(dealId) && t.used !== "failed");
       const r = issued ? { skipped: true, reason: "link already issued" } : autoLinkDeal_(dealId);
       Logger.log("autoLink from webhook for deal %s: %s", dealId, JSON.stringify(r));
       results.push({ dealId: dealId, autoLink: r });

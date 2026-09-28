@@ -140,7 +140,21 @@ function consumeLinkToken(token, telegramId, telegramUser) {
   try {
     const row = findRow("LinkTokens", "token", token);
     if (!row) throw new Error("Unknown linking token");
-    if (row.used === "yes") throw new Error("Linking token already used");
+    if (row.used !== "no") {
+      // ПОВТОРНОЕ ОТКРЫТИЕ ССЫЛКИ (28.09.2026). Студент подключился и на
+      // следующий день снова тапнул по той же ссылке в WhatsApp — это самый
+      // естественный способ открыть приложение. Раньше бэкенд отвечал
+      // «ссылка уже использована», фронт рисовал экран ошибки и приложение
+      // не запускалось. Если сделка уже привязана к ЭТОМУ ЖЕ аккаунту —
+      // просто пускаем дальше, ничего не меняя. Чужой аккаунт по
+      // использованной ссылке по-прежнему не проходит. Токен со статусом
+      // failed (сообщение так и не ушло, см. autoLinkDeal_) тоже не проходит.
+      const already = findRow("Participants", "amo_deal_id", row.amo_deal_id);
+      if (row.used === "yes" && already && String(already.telegram_id || "") === String(telegramId)) {
+        return row.amo_deal_id;
+      }
+      throw new Error("Linking token already used");
+    }
     // Срок жизни токена. Проверка написана «от обратного» намеренно: если
     // ячейка expires_at пуста или не разобралась в дату, getTime() даёт NaN, а
     // NaN < Date.now() — это false, то есть прежняя запись считала такой токен
