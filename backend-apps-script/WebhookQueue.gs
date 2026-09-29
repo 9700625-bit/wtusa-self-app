@@ -38,23 +38,30 @@ const WHQ_MAX_RUN_MS_ = 4 * 60 * 1000;
 
 /** Вызывается из doPost после проверки secret. Возвращает то, что уйдёт amoCRM в ответе. */
 function enqueueAmoWebhook_(params) {
+  // 29.09: в очередь кладём только id и status_id сделок — остальное
+  // handleAmoWebhook не использует (сделку перечитывает из amoCRM сам).
+  // Полное событие весило несколько КБ, и хранилище (500 КБ) переполнялось.
   const copy = {};
   Object.keys(params || {}).forEach((k) => {
-    if (k !== "secret" && k !== "action") copy[k] = params[k];
+    if (/^leads\[(status|update|add)\]\[\d+\]\[(id|status_id)\]$/.test(k)) copy[k] = params[k];
   });
+  if (!Object.keys(copy).length) return { ok: true, skipped: "no lead ids" };
   const json = JSON.stringify(copy);
   const props = PropertiesService.getScriptProperties();
   if (json.length > WHQ_MAX_VALUE_CHARS_) {
-    Logger.log("enqueueAmoWebhook_: payload %s chars > limit, processing synchronously", json.length);
     whqStat_(props, "WHQSTAT_ENQ", { path: "sync", size: json.length });
-    return handleAmoWebhook(params);
+    return handleAmoWebhook(copy);
   }
   const key = WHQ_PREFIX_ + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
-  props.setProperty(key, json);
+  try {
+    props.setProperty(key, json);
+  } catch (err) {
+    Logger.log("enqueueAmoWebhook_: store full (%s), processing synchronously", err);
+    return handleAmoWebhook(copy);
+  }
   whqStat_(props, "WHQSTAT_ENQ", { path: "queued", size: json.length, key: key });
   return { ok: true, queued: true };
 }
-
 /** Триггер по времени: раз в минуту. */
 function processAmoWebhookQueue() {
   const lock = LockService.getUserLock();
