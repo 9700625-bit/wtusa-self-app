@@ -410,7 +410,7 @@ function stateForUser_(telegramUser) {
     // Fixed reference total (Payment 1 is pure KZT with no $ figure, so it
     // can't be computed by summing the payments — see Webhooks.gs). Change
     // the PROGRAM_COST_USD Script Property if the program price changes.
-    programCost: Number(CFG_OPTIONAL("PROGRAM_COST_USD", 2850)),
+    programCost: Number(CFG_OPTIONAL("PROGRAM_COST_USD", 0)) || null, // 29.09: без свойства не показываем — цена у студентов разная, 2850 была заглушкой
     visaFees: [
       { id: "fee_sevis", label: "SEVIS Fee", amount: 35, status: visaRow.sevis_fee_status || "locked" },
       { id: "fee_visa", label: "Visa Fee", amount: 185, status: visaRow.visa_fee_status || "locked" },
