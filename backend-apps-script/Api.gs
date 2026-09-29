@@ -310,8 +310,14 @@ function doPost(e) {
         return jsonOutput_(submitSupport_(user, body.message));
       case "toggleChecklist":
         return jsonOutput_(toggleChecklistItem_(user, body.itemId));
-      case "link":
-        return jsonOutput_({ amoDealId: consumeLinkToken(body.token, String(user.id), user) });
+      case "link": {
+        const linkedDealId = consumeLinkToken(body.token, String(user.id), user);
+        // 29.09: сразу после привязки подтягиваем сделку — иначе платежи,
+        // документы и визовые данные появлялись только после следующего
+        // изменения сделки в amoCRM (syncDealToSheets пишет их лишь при telegram_id).
+        try { syncDealToSheets(String(linkedDealId)); } catch (err) { Logger.log("post-link sync failed: %s", err); }
+        return jsonOutput_({ amoDealId: linkedDealId });
+      }
       case "respondEvent":
         return jsonOutput_(respondToEvent_(user, body.groupId, body.choice, body.chosenEventId));
       case "confirmVisaReady":

@@ -330,7 +330,17 @@ function notifyPaymentPaid_(participant, label) {
   sendTelegramMessage(participant.telegram_id, text);
   logEvent(participant.telegram_id, "amocrm_webhook", "payment_paid", "", label);
 }
+// 29.09.2026: сроки платежей считаются от «Дата подписания договора» (поле сделки,
+// FIELD_ID_CONTRACT_DATE, по умолчанию 1383527), а не от даты создания сделки:
+// сделки заводились ещё в 2025 году, и студент видел «просрочено на 398 дней».
+// Нет даты договора — срок «уточняется», напоминаний по этому платежу нет.
+function contractDateForDeal_(deal) {
+  const fid = CFG_OPTIONAL("FIELD_ID_CONTRACT_DATE", "1383527");
+  return fid ? parseAmoDate_(customFieldValue(deal, fid)) : null;
+}
+
 function syncPaymentsFromDeal_(deal, participant) {
+  const contractDate = contractDateForDeal_(deal);
   const createdAt = deal.created_at ? new Date(deal.created_at * 1000) : new Date();
 
   Object.keys(FIXED_PAYMENTS_).forEach((payId) => {
@@ -340,7 +350,7 @@ function syncPaymentsFromDeal_(deal, participant) {
     if (!statusFieldId) return;
 
     const raw = String(customFieldValue(deal, statusFieldId) || "");
-    const deadline = new Date(createdAt.getTime() + cfg.offsetDays * 24 * 3600 * 1000);
+    const deadline = contractDate ? new Date(contractDate.getTime() + cfg.offsetDays * 24 * 3600 * 1000) : null;
     const rowKey = participant.telegram_id + ":" + payId;
     const existing = findRow("Payments", "pay_row_key", rowKey);
     const label = "Оплата " + n;
@@ -375,7 +385,7 @@ function syncPaymentsFromDeal_(deal, participant) {
       label: label,
       amount: cfg.amount,
       currency: cfg.currency,
-      deadline: Utilities.formatDate(deadline, "GMT+5", "yyyy-MM-dd"),
+      deadline: deadline ? Utilities.formatDate(deadline, "GMT+5", "yyyy-MM-dd") : "",
       status: status,
       paid_date: paidDate,
     });
