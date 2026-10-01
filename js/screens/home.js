@@ -27,7 +27,15 @@ export async function render(container) {
   // студентов блок не показывался никогда. Теперь — из «Событий»: ближайший
   // будущий слот (выбранный студентом или самый ранний), если приглашение
   // не отклонено. getEvents() кеширует ответ, лишнего запроса нет.
-  const [dashboard, events] = await Promise.all([api.getDashboard(), api.getEvents().catch(() => [])]);
+  // 01.10: главная не ждёт «События» дольше 1,2 с. Раньше переход на главную
+  // висел, пока сервер отдаёт список мероприятий (2–5 с на Apps Script), хотя
+  // всё остальное уже было в кеше. Не успели — рисуем без брифинга; список
+  // продолжит грузиться в фоне и попадёт в кеш к следующему заходу.
+  const eventsSoon = Promise.race([
+    api.getEvents().catch(() => []),
+    new Promise((resolve) => setTimeout(() => resolve([]), 1200)),
+  ]);
+  const [dashboard, events] = await Promise.all([api.getDashboard(), eventsSoon]);
   const { currentStage, progress, action, nearestPayment, participant } = dashboard;
   const nearestBriefing = nearestEventFrom_(events);
   // ПРИВЕТСТВИЕ БЕЗ ИМЕНИ (23.09.2026, решение владельца). Имена в amoCRM
