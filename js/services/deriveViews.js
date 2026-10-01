@@ -62,7 +62,14 @@ function ctaAlreadyDone_(stage, participant) {
 function nearestPayment(state) {
   const upcoming = (state.payments || [])
     .filter((p) => p.status === "awaiting" || p.status === "overdue")
-    .sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+    // 01.10: платёж без срока («уточняется») — в конец, иначе сравнение с
+    // пустой датой даёт NaN и на главной мог оказаться он вместо платежа
+    // с реальным сроком.
+    .sort((a, b) => {
+      const ta = a.deadline ? new Date(a.deadline).getTime() : Infinity;
+      const tb = b.deadline ? new Date(b.deadline).getTime() : Infinity;
+      return (isNaN(ta) ? Infinity : ta) - (isNaN(tb) ? Infinity : tb) || 0;
+    });
   return upcoming[0] || null;
 }
 
