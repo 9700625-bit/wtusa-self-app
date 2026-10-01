@@ -349,7 +349,26 @@ let eventsCache = null;
 let eventsCacheAt = 0;
 let eventsPromise = null;
 
+// 01.10: мероприятия тоже сохраняем на телефоне — иначе при мгновенном
+// открытии из сохранённого state главная всё равно ждала их до 1,2 с.
+let eventsFromDisk_ = false;
+(function () {
+    try {
+        const k = diskKey_(); if (!k) return;
+        const saved = JSON.parse(localStorage.getItem(k + "_ev") || "null");
+        if (saved && saved.data && Date.now() - saved.at < DISK_MAX_AGE_MS_) { eventsCache = saved.data; eventsCacheAt = 0; eventsFromDisk_ = true; }
+    } catch (e) { /* ignore */ }
+})();
+
 export async function getEvents() {
+    if (eventsFromDisk_ && eventsCache) {
+        eventsFromDisk_ = false;
+        const cached = eventsCache;
+        eventsCache = null;
+        getEvents().catch(() => {}); // свежие — в фоне
+        eventsCache = eventsCache || cached;
+        return cached;
+    }
     if (eventsCache && Date.now() - eventsCacheAt < EVENTS_CACHE_MS) return eventsCache;
     // Склейка параллельных вызовов — та же причина, что и у getState выше:
     // экран может спросить события дважды в один тик.
@@ -358,6 +377,7 @@ export async function getEvents() {
             .then((json) => {
                 eventsCache = json;
                 eventsCacheAt = Date.now();
+                try { const k = diskKey_(); if (k) localStorage.setItem(k + "_ev", JSON.stringify({ at: Date.now(), data: json })); } catch (e) { /* ignore */ }
                 return json;
             })
             .finally(() => { eventsPromise = null; });
