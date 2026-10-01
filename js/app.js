@@ -137,6 +137,16 @@ async function handleStartParam() {
   if (!startParam) return;
 
   if (startParam.type === "link" && startParam.rest) {
+    // ПОВТОРНОЕ ОТКРЫТИЕ ПО ССЫЛКЕ (01.10.2026). Студенты открывают приложение
+    // той же ссылкой из WhatsApp. Если на телефоне уже есть их сохранённые
+    // данные — они привязаны: показываем экран сразу, а привязку
+    // подтверждаем в фоне (раньше каждый такой вход ждал сервер ~3 с).
+    if (api.hasSavedState()) {
+      api.linkAccount(startParam.rest)
+        .then(() => window.dispatchEvent(new Event("state-refreshed")))
+        .catch((err) => console.warn("[app] background re-link:", err));
+      return;
+    }
     // ПОКАЗЫВАЕМ, ЧТО ИДЁТ ПРИВЯЗКА (02.09.2026).
     //
     // Раньше здесь просто ждали ответа сервера, а роутер (вместе с
