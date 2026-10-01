@@ -162,7 +162,7 @@ async function handleStartParam() {
     if (contentEl) {
       contentEl.innerHTML =
         '<div class="card"><h2>Подключаем ваш профиль</h2>' +
-        '<div class="sub">Это займёт несколько секунд.</div></div>';
+        '<div class="sub">Обычно это несколько секунд, при первом входе — до минуты. Не закрывайте приложение.</div></div>';
     }
     try {
       await api.linkAccount(startParam.rest);
