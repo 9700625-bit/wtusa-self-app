@@ -103,3 +103,8 @@ export async function _debugGetCurrentStageId() {
     if (isLiveBackendConfigured()) throw new Error("_debugGetCurrentStageId is mock-only");
     return (await loadMock_())._debugGetCurrentStageId();
 }
+
+// 01.10.2026: повторное открытие по ссылке-приглашению не ждёт сервер (см. app.js).
+export function hasSavedState() {
+    return isLiveBackendConfigured() && liveApi.hasSavedState();
+}

@@ -315,6 +315,11 @@ export async function getVisaInfo() {
 
 /** Consumes a one-time linking token from a deep link (ТЗ §58). Call this
  * once at startup when a `link-<token>` start_param is present. */
+/** Есть ли на этом телефоне сохранённые данные студента (значит, он уже привязан). */
+export function hasSavedState() {
+    return fromDisk_ && !!stateCache;
+}
+
 export async function linkAccount(token) {
     const result = await apiPost("link", { token });
     invalidateState();
