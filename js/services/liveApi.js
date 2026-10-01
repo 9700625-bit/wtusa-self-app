@@ -51,10 +51,10 @@ let statePromise = null;
  */
 const ТАЙМАУТ_МС = 25000;
 
-async function запросить_(url, options) {
+async function запросить_(url, options, таймаутМс) {
     // AbortController есть во всех браузерах, где работает Telegram Mini App.
     const controller = new AbortController();
-    const таймер = setTimeout(() => controller.abort(), ТАЙМАУТ_МС);
+    const таймер = setTimeout(() => controller.abort(), таймаутМс || ТАЙМАУТ_МС);
     let resp;
     try {
         resp = await fetch(url, { ...(options || {}), signal: controller.signal });
@@ -84,12 +84,12 @@ async function apiGet(action, extraParams) {
     return запросить_(`${BACKEND_URL}?${params.toString()}`, { method: "GET" });
 }
 
-async function apiPost(action, payload) {
+async function apiPost(action, payload, таймаутМс) {
     return запросить_(`${BACKEND_URL}?action=${encodeURIComponent(action)}`, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" }, // see CORS note above
           body: JSON.stringify({ initData: getInitData(), ...(payload || {}) }),
-    });
+    }, таймаутМс);
 }
 
 // МГНОВЕННЫЙ ПОКАЗ ИЗ ПАМЯТИ ТЕЛЕФОНА (01.10.2026, ТЗ ускорения, п. 3.1).
@@ -320,10 +320,27 @@ export function hasSavedState() {
     return fromDisk_ && !!stateCache;
 }
 
+// ПОДКЛЮЧЕНИЕ НЕ ОБРЫВАЕМ ЧЕРЕЗ 25 С (01.10.2026). Привязка на сервере — это
+// запись в таблицу + заметка/тег в amoCRM + подтягивание платежей и документов
+// из сделки, с холодным стартом бывает дольше 25 с. Студент видел «Сервер долго
+// не отвечает», хотя сервер его уже подключил (Абуталипова, Адамбек 01.10), а
+// «Попробовать ещё раз» снова запускал ту же долгую привязку. Теперь ждём до
+// 60 с, а если и это истекло — не показываем ошибку, а сразу открываем
+// приложение: состояние грузится по Telegram id, и если привязка на сервере
+// прошла (почти всегда так), студент просто попадает внутрь.
+const ТАЙМАУТ_ПРИВЯЗКИ_МС = 60000;
 export async function linkAccount(token) {
-    const result = await apiPost("link", { token });
-    invalidateState();
-    return result;
+    try {
+        const result = await apiPost("link", { token }, ТАЙМАУТ_ПРИВЯЗКИ_МС);
+        invalidateState();
+        return result;
+    } catch (err) {
+        if (String(err && err.message) === "TIMEOUT") {
+            invalidateState();
+            return { pending: true };
+        }
+        throw err;
+    }
 }
 
 // Deliberately NOT folded into getState()/stateCache: event invitations are
