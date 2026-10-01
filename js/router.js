@@ -44,6 +44,15 @@ function parseHash() {
   return { name: name || "home", params: rest };
 }
 
+// Фоновое обновление данных (liveApi, 01.10.2026): пришли свежие —
+// тихо перерисовываем текущий экран. Если человек что-то печатает —
+// не трогаем, чтобы не стереть ввод.
+window.addEventListener("state-refreshed", () => {
+  const a = document.activeElement;
+  if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA")) return;
+  render(true);
+});
+
 async function render(force) {
   if (!containerEl) return;
 
