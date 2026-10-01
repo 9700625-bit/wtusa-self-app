@@ -92,26 +92,92 @@ async function apiPost(action, payload) {
     });
 }
 
+// МГНОВЕННЫЙ ПОКАЗ ИЗ ПАМЯТИ ТЕЛЕФОНА (01.10.2026, ТЗ ускорения, п. 3.1).
+// Замер: ответ сервера на state — ~3 с при любом входе (8 чтений листов по
+// 0,2–0,7 с). Поэтому последний ответ сохраняем в localStorage и при
+// следующем открытии рисуем экран сразу из него, а свежие данные тянем в
+// фоне. Пришли другие — событие "state-refreshed", роутер перерисует экран.
+// Ключ привязан к telegram id (чужих данных не покажем), старше 7 дней —
+// не показываем. localStorage в некоторых webview недоступен — всё в try.
+const DISK_KEY_PREFIX_ = "wtusa_state_v1_";
+const DISK_MAX_AGE_MS_ = 7 * 24 * 3600 * 1000;
+function diskKey_() {
+    try {
+        const u = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user;
+        return u && u.id ? DISK_KEY_PREFIX_ + u.id : null;
+    } catch (e) { return null; }
+}
+function diskLoad_() {
+    try {
+        const k = diskKey_(); if (!k) return null;
+        const raw = localStorage.getItem(k); if (!raw) return null;
+        const saved = JSON.parse(raw);
+        if (!saved || !saved.data || !saved.at || Date.now() - saved.at > DISK_MAX_AGE_MS_) return null;
+        return saved.data;
+    } catch (e) { return null; }
+}
+function diskSave_(data) {
+    try {
+        const k = diskKey_(); if (!k) return;
+        const copy = { ...data }; delete copy._t;
+        localStorage.setItem(k, JSON.stringify({ at: Date.now(), data: copy }));
+    } catch (e) { /* нет места или запрещено — просто не сохраняем */ }
+}
+function diskClear_() {
+    try { const k = diskKey_(); if (k) localStorage.removeItem(k); } catch (e) { /* ignore */ }
+}
+let fromDisk_ = false;
+(function () {
+    const saved = diskLoad_();
+    if (saved) { stateCache = saved; stateCacheAt = 0; fromDisk_ = true; }
+})();
+
+function fetchState_() {
+    if (!statePromise) {
+        statePromise = apiGet("state")
+            .then((json) => {
+                stateCache = json;
+                stateCacheAt = Date.now();
+                fromDisk_ = false;
+                diskSave_(json);
+                return json;
+            })
+            .finally(() => {
+                statePromise = null;
+            });
+    }
+    return statePromise;
+}
+
 async function getState(force) {
+    // Данные с диска: отдаём сразу, свежие — в фоне (один раз).
+    if (!force && fromDisk_ && stateCache) {
+        if (!statePromise) {
+            const before = JSON.stringify(stateCache);
+            fetchState_()
+                .then((json) => {
+                    const after = { ...json }; delete after._t;
+                    if (JSON.stringify(after) !== before) window.dispatchEvent(new Event("state-refreshed"));
+                })
+                .catch((err) => {
+                    // Доступ отозван — стираем сохранённое и даём экрану показать ошибку.
+                    if (/NOT_INVITED|UNAUTHORIZED/.test(String(err && err.message))) {
+                        diskClear_(); stateCache = null; fromDisk_ = false;
+                        window.dispatchEvent(new Event("state-refreshed"));
+                    }
+                });
+        }
+        return stateCache;
+    }
     const fresh = !force && stateCache && Date.now() - stateCacheAt < STATE_CACHE_MS;
     if (fresh) return stateCache;
     if (force) statePromise = null; // discard any stale in-flight promise, force a real refetch
-  if (!statePromise) {
-        statePromise = apiGet("state")
-          .then((json) => {
-                    stateCache = json;
-                    stateCacheAt = Date.now();
-                    return json;
-          })
-          .finally(() => {
-                    statePromise = null;
-          });
-  }
-    return statePromise;
+    return fetchState_();
 }
 
 function invalidateState() {
     stateCache = null;
+    fromDisk_ = false;
 }
 
 /**
