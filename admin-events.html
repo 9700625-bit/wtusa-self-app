@@ -462,13 +462,21 @@ const SECRET_KEY = "wtusa_admin_secret";
         const skippedNote = res.skipped && res.skipped.length
           ? `\nПропущено (уже были приглашены на «${title}» ранее): ${res.skipped.length}.`
           : "";
+        // 05.10.2026: большое мероприятие сервер рассылает частями. sent —
+        // сколько ушло сразу, queued — сколько досылается автоматически.
+        const queuedNote = res.queued > 0
+          ? `\nЕщё ${res.queued} отправляются автоматически в течение нескольких минут — повторно нажимать «Создать» не нужно.`
+          : "";
+        const reusedNote = res.reused
+          ? `\nМероприятие с таким названием и датой уже есть — новое не создано, приглашения добавлены в существующее.`
+          : "";
         if (res.failures && res.failures.length) {
           resultEl.className = "err";
           const lines = res.failures.map((f) => `${f.telegramId}: ${f.error}`).join("\n");
-          resultEl.textContent = `Отправлено: ${res.sent}. Не удалось отправить в Telegram (${res.failures.length}):\n${lines}${skippedNote}`;
+          resultEl.textContent = `Отправлено: ${res.sent}. Не удалось отправить в Telegram (${res.failures.length}):\n${lines}${queuedNote}${reusedNote}${skippedNote}`;
         } else {
           resultEl.className = "ok";
-          resultEl.textContent = `Готово — отправлено приглашений: ${res.sent}.${skippedNote}`;
+          resultEl.textContent = `Готово — отправлено приглашений: ${res.sent}.${queuedNote}${reusedNote}${skippedNote}`;
         }
       } catch (err) {
         resultEl.className = "err";
