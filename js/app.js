@@ -23,7 +23,7 @@ initTelegram();
  * отправить их всё равно не выйдет. Только в живом режиме.
  */
 const reportedErrors_ = new Set();
-function reportClientError_(err, kind) {
+function reportClientError_(err, kind, extra) {
   try {
     if (!isLiveBackendConfigured()) return;
     const message = String((err && err.message) || err || "").slice(0, 300);
@@ -33,7 +33,7 @@ function reportClientError_(err, kind) {
     reportedErrors_.add(key);
     api.reportClientError({
       message: kind + ": " + message,
-      stack: String((err && err.stack) || "").slice(0, 400),
+      stack: (String((err && err.stack) || "") + (extra ? " " + extra : "")).slice(0, 400),
       screen: (window.location.hash || "#home").slice(1, 40),
       url: window.location.pathname,
       ua: navigator.userAgent,
@@ -41,7 +41,20 @@ function reportClientError_(err, kind) {
   } catch (ignore) { /* мониторинг не должен ронять приложение */ }
 }
 window.__reportScreenError = reportClientError_;
-window.addEventListener("error", (e) => reportClientError_(e.error || e.message, "error"));
+// ПОДРОБНОСТИ ДЛЯ «Script error.» (02.10.2026). Три случая на Android 16 без
+// единой детали: браузер скрывает текст ошибки, если она случилась в чужом
+// скрипте (у нас это только telegram-web-app.js). Дописываем то, что знаем
+// сами: файл и строку, версию и платформу Telegram, нарисован ли экран.
+function errorContext_(e) {
+  try {
+    const tg = window.Telegram && window.Telegram.WebApp;
+    const el = document.getElementById("screen-root");
+    return "[" + (e && e.filename ? String(e.filename).split("/").pop() : "?") + ":" + ((e && e.lineno) || 0) +
+      " tg=" + (tg ? tg.version + "/" + tg.platform : "нет") +
+      " экран=" + (el ? el.textContent.trim().length : -1) + "]";
+  } catch (ignore) { return ""; }
+}
+window.addEventListener("error", (e) => reportClientError_(e.error || e.message, "error", errorContext_(e)));
 window.addEventListener("unhandledrejection", (e) => reportClientError_(e.reason, "promise"));
 
 registerScreen("home", home.render);
