@@ -27,7 +27,7 @@ function reportClientError_(err, kind, extra) {
   try {
     if (!isLiveBackendConfigured()) return;
     const message = String((err && err.message) || err || "").slice(0, 300);
-    if (!message || /^(OFFLINE|TIMEOUT|BACKEND_HTML)$/.test(message)) return;
+    if (!message || /^(OFFLINE|TIMEOUT|BACKEND_HTML)$/.test(message) || /NOT_INVITED|UNAUTHORIZED/.test(message)) return;
     const key = kind + ":" + message;
     if (reportedErrors_.has(key) || reportedErrors_.size > 5) return;
     reportedErrors_.add(key);
@@ -121,6 +121,8 @@ async function показатьОшибкуПривязки_(err, token) {
   const код = String((err && err.message) || "");
   const связь = код === "OFFLINE" || код === "TIMEOUT" || код === "BACKEND_HTML";
 
+  // «Система сейчас занята» — временный отказ (замок на сервере): тоже даём повторить.
+  const занято = код.indexOf("Система сейчас занята") !== -1;
   let заголовок = "Не получилось подключить профиль";
   let текст;
   if (связь) {
@@ -143,7 +145,7 @@ async function показатьОшибкуПривязки_(err, token) {
   contentEl.innerHTML =
     '<div class="card"><h2>' + заголовок + "</h2>" +
     '<div class="sub">' + текст + "</div>" +
-    (связь ? '<button class="btn btn-primary" id="link-retry" style="margin-top:14px">Попробовать ещё раз</button>' : "") +
+    (связь || занято ? '<button class="btn btn-primary" id="link-retry" style="margin-top:14px">Попробовать ещё раз</button>' : "") +
     "</div>";
 
   const повтор = contentEl.querySelector("#link-retry");
@@ -198,9 +200,13 @@ async function handleStartParam() {
         '<div class="sub">Обычно это несколько секунд, при первом входе — до минуты. Не закрывайте приложение.</div></div>';
     }
     try {
-      await api.linkAccount(startParam.rest);
+      const итог = await api.linkAccount(startParam.rest);
+      if (итог && итог.pending) window.__linkPending = true; // сервер не ответил за 60 с — см. router.js
     } catch (err) {
       console.error("[app] account linking failed:", err);
+      // Студент уже привязан (чужая ссылка на новом телефоне / после очистки памяти):
+      // его приложение работает — пускаем внутрь, а не оставляем на экране ошибки.
+      if (String(err && err.message).indexOf("Вы уже подключены") !== -1) return;
       if (contentEl) {
         await показатьОшибкуПривязки_(err, startParam.rest);
         return "стоп"; // роутер не запускаем — см. комментарий в функции
