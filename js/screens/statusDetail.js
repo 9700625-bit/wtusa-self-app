@@ -64,11 +64,19 @@ export async function render(container, params) {
     const hasReal = stage.cieeDaysRemaining != null;
     const remaining = hasReal ? stage.cieeDaysRemaining : stage.deadlineDays;
     const overdue = hasReal && remaining < 0;
-    extraHtml += `
+    // «ПРОСРОЧЕНО» БОЛЬШЕ НЕ ПОКАЗЫВАЕМ (05.10.2026, решение владельца). У ~105
+    // студентов дата регистрации в приложении оказалась датой первой сверки
+    // (29.09–01.10), а не настоящего перехода на этап, и карточка писала им
+    // «Просрочено N дней», хотя срока у них нет. Отсчёт показываем, только пока
+    // он идёт; когда срок вышел — карточку скрываем (координатор и так получает
+    // задачу).
+    if (!overdue) {
+      extraHtml += `
       <div class="card">
         <h3>Срок активации</h3>
-        <div class="row"><div class="sub">${overdue ? "Просрочено" : "Осталось"}</div><div class="metric">${daysLabel(Math.abs(remaining))}</div></div>
+        <div class="row"><div class="sub">Осталось</div><div class="metric">${daysLabel(remaining)}</div></div>
       </div>`;
+    }
   }
 
   if (stage.id === "VISA_FINAL_CALL" || stage.id === "VISA_INTERVIEW_SCHEDULED") {
