@@ -546,7 +546,9 @@ const SECRET_KEY = "wtusa_admin_secret";
         <div class="att-row" data-tg="${esc(i.telegramId)}">
           <div>
             <div class="att-name">${esc(i.name)}</div>
-            <div class="att-meta">${esc(статус[i.status] || i.status)}${i.chosen ? " · " + esc(i.chosen) : ""}</div>
+            <div class="att-meta">${esc(статус[i.status] || i.status)}${i.chosen ? " · " + esc(i.chosen) : ""}${
+              i.notified === "failed" ? ' · <b style="color:var(--danger)">приглашение не доставлено в Telegram</b>'
+              : i.notified === "" ? " · <b>приглашение ещё не отправлено</b>" : ""}</div>
           </div>
           <div class="att-seg">
             <button type="button" data-att="yes" class="${i.attended === "yes" ? "on-yes" : ""}">Был</button>
