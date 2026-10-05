@@ -1,6 +1,6 @@
 import { initRouter, registerScreen, setNavigateListener } from "./router.js";
 import { renderNav, setActiveNav } from "./components/nav.js";
-import { initTelegram, getStartParam } from "./services/telegram.js";
+import { initTelegram, getStartParam, requestWriteAccessIfNeeded } from "./services/telegram.js";
 import { isLiveBackendConfigured } from "./services/config.js";
 import * as api from "./services/api.js";
 
@@ -237,6 +237,10 @@ async function подставитьСезонВШапку() {
   if (!плашка) return;
   try {
     const { participant } = await api.getMe();
+    // Состояние пришло — значит, студент подключён. Самое время спросить
+    // разрешение боту писать ему (см. requestWriteAccessIfNeeded): без него
+    // напоминания и приглашения до человека не доходят.
+    requestWriteAccessIfNeeded();
     const program = (participant && participant.program) || "";
     const season = (participant && participant.season) || "";
     // ГОД БЕЗ ИСТОЧНИКА (14.09.2026). Условие было `program && season`, то
