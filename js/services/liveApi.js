@@ -381,8 +381,12 @@ export async function getEvents() {
     if (eventsFromDisk_ && eventsCache) {
         eventsFromDisk_ = false;
         const cached = eventsCache;
+        const before = JSON.stringify(cached);
         eventsCache = null;
-        getEvents().catch(() => {}); // свежие — в фоне
+        // свежие — в фоне; пришли другие — перерисовываем экран (как для state)
+        getEvents()
+            .then((fresh) => { if (JSON.stringify(fresh) !== before) window.dispatchEvent(new Event("state-refreshed")); })
+            .catch(() => {});
         eventsCache = eventsCache || cached;
         return cached;
     }

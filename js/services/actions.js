@@ -21,6 +21,16 @@ function blockCard_(el) {
   return el.closest(".card") || el.closest("section") || el;
 }
 
+/** Что сказать студенту, когда действие не дошло до сервера. */
+function ошибкаДействия_(err) {
+  const код = String((err && err.message) || "");
+  if (/UNAUTHORIZED|initData/.test(код)) return "Сеанс устарел. Закройте приложение и откройте его заново из чата с ботом.";
+  if (код === "OFFLINE") return "Нет связи. Проверьте интернет и попробуйте ещё раз.";
+  if (код === "TIMEOUT") return "Сервер долго не отвечает. Попробуйте ещё раз.";
+  if (/[а-яё]/i.test(код)) return код;
+  return "Не получилось отправить. Попробуйте ещё раз через несколько минут.";
+}
+
 export async function runCtaAction(action, meta = {}) {
   hapticImpact("light");
   switch (action) {
@@ -86,7 +96,7 @@ export async function runCtaAction(action, meta = {}) {
       // Final Call — студент подтверждает готовность к визовому интервью; бэкенд
       // ставит координатору задачу в amoCRM (confirmVisaReady_ в Api.gs) и сам следит,
       // чтобы повторное нажатие не создавало вторую задачу.
-      await api.confirmVisaReady();
+      try { await api.confirmVisaReady(); } catch (err) { showAlert(ошибкаДействия_(err)); throw err; }
       showAlert("Готово! Мы передали координатору, что вы готовы к визовому интервью.");
       break;
     case "confirmJobOffer":
@@ -94,7 +104,7 @@ export async function runCtaAction(action, meta = {}) {
       // координатору задачу в amoCRM (confirmJobOffer_ в Api.gs), тот
       // связывается со студентом и переводит сделку на "Job Offer получен"
       // вручную. Идемпотентно, как confirmVisaReady выше.
-      await api.confirmJobOffer();
+      try { await api.confirmJobOffer(); } catch (err) { showAlert(ошибкаДействия_(err)); throw err; }
       showAlert("Готово! Мы передали координатору, что у вас есть Job Offer — он скоро с вами свяжется.");
       break;
     default:
