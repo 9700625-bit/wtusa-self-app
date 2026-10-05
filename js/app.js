@@ -34,7 +34,7 @@ function reportClientError_(err, kind, extra) {
     api.reportClientError({
       message: kind + ": " + message,
       stack: (String((err && err.stack) || "") + (extra ? " " + extra : "")).slice(0, 400),
-      screen: (window.location.hash || "#home").slice(1, 40),
+      screen: screenForReport_(),
       url: window.location.pathname,
       ua: navigator.userAgent,
     }).catch(() => {});
@@ -54,7 +54,27 @@ function errorContext_(e) {
       " экран=" + (el ? el.textContent.trim().length : -1) + "]";
   } catch (ignore) { return ""; }
 }
-window.addEventListener("error", (e) => reportClientError_(e.error || e.message, "error", errorContext_(e)));
+// СЛУЖЕБНЫЕ ДАННЫЕ TELEGRAM — НЕ В ОПОВЕЩЕНИЕ (05.10.2026). При запуске Telegram
+// кладёт в адрес после «#» строку tgWebAppData=… (данные запуска). Раньше в
+// поле «Где» уходили первые 40 символов этой строки. Теперь туда попадает
+// только имя экрана; всё остальное заменяется словом «запуск».
+function screenForReport_() {
+  const hash = String(window.location.hash || "").slice(1);
+  if (!hash) return "home";
+  return /^[a-z][a-z0-9_\/-]{0,39}$/i.test(hash) ? hash : "запуск";
+}
+// «Script error.» БЕЗ ПОДРОБНОСТЕЙ НЕ ШЛЁМ (05.10.2026). Так браузер сообщает
+// об ошибке в чужом скрипте (у нас это только telegram-web-app.js), скрывая
+// текст, файл и строку. Подробности, добавленные 02.10, приходили пустыми:
+// починить по такому сообщению нечего, а оповещения съедали дневной лимит.
+// Ошибки нашего кода приходят с именем файла и сюда не попадают.
+function isOpaqueScriptError_(e) {
+  return !!e && !e.error && !e.filename && !e.lineno && /^script error\.?$/i.test(String(e.message || "").trim());
+}
+window.addEventListener("error", (e) => {
+  if (isOpaqueScriptError_(e)) return;
+  reportClientError_(e.error || e.message, "error", errorContext_(e));
+});
 window.addEventListener("unhandledrejection", (e) => reportClientError_(e.reason, "promise"));
 
 registerScreen("home", home.render);
