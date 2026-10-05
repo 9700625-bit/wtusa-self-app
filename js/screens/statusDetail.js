@@ -268,9 +268,12 @@ container.querySelectorAll("[data-cta]").forEach((btn) => {
           const подсказка = document.createElement("div");
           подсказка.className = "small checklist-err";
           подсказка.style.color = "var(--danger)";
-          подсказка.textContent = "Не сохранилось — проверьте связь и нажмите ещё раз.";
+          const сеанс = /UNAUTHORIZED|initData/.test(String(err && err.message));
+          подсказка.textContent = сеанс
+            ? "Сеанс устарел — закройте приложение и откройте его заново из чата с ботом."
+            : "Не сохранилось — проверьте связь и нажмите ещё раз.";
           ряд.appendChild(подсказка);
-          setTimeout(() => подсказка.remove(), 5000);
+          if (!сеанс) setTimeout(() => подсказка.remove(), 5000);
         }
       }
     });

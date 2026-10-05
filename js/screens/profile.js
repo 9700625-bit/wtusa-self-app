@@ -36,7 +36,9 @@ export async function render(container) {
   const строкаПрограммы = программаИСезон
     ? `<div class="profile-row"><div class="small">Программа</div><b>${программаИСезон}</b></div>`
     : "";
-  const cieeId = esc(participant.cieeId);
+  // Бэкенд вместо пустого значения может прислать фразу-заглушку — это не ID.
+  const cieeIdСырой = String(participant.cieeId || "").trim();
+  const cieeId = /[А-Яа-яЁё\s]/.test(cieeIdСырой) ? "" : esc(cieeIdСырой);
   const строкаCieeId = cieeId
     ? `<div class="profile-row"><div class="small">CIEE ID</div><b>${cieeId}</b></div>`
     : "";
