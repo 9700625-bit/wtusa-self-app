@@ -27,6 +27,7 @@ function ошибкаДействия_(err) {
   if (/UNAUTHORIZED|initData/.test(код)) return "Сеанс устарел. Закройте приложение и откройте его заново из чата с ботом.";
   if (код === "OFFLINE") return "Нет связи. Проверьте интернет и попробуйте ещё раз.";
   if (код === "TIMEOUT") return "Сервер долго не отвечает. Попробуйте ещё раз.";
+  if (код === "BACKEND_HTML") return "Приложение временно недоступно. Попробуйте через несколько минут.";
   if (/[а-яё]/i.test(код)) return код;
   return "Не получилось отправить. Попробуйте ещё раз через несколько минут.";
 }
@@ -55,7 +56,10 @@ export async function runCtaAction(action, meta = {}) {
       // this participant (see Coordinators-sheet fix in Setup.gs/Webhooks.gs
       // this same pass). documents.js already does it the right way -- ask
       // the backend who the real coordinator is, same as here.
-      const me = await api.getMe();
+      // Состояние в памяти живёт 5 минут; дальше getMe идёт на сервер и без связи падала —
+      // обработчики кнопки её не ждут, и нажатие просто ничего не делало (05.10.2026).
+      let me;
+      try { me = await api.getMe(); } catch (err) { showAlert(ошибкаДействия_(err)); return; }
       const username = me.coordinator && me.coordinator.telegramUsername;
       if (username) {
         openTelegramLink(`https://t.me/${username}`);

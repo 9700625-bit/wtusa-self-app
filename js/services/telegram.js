@@ -73,14 +73,17 @@ export function requestWriteAccessIfNeeded() {
     if (typeof app.isVersionAtLeast === "function" && !app.isVersionAtLeast("6.9")) return;
     const user = app.initDataUnsafe && app.initDataUnsafe.user;
     if (!user || user.allows_write_to_pm) return;
+    // Ключ — на аккаунт: на одном телефоне бывает два аккаунта Telegram, а память браузера у
+    // них общая. С общим ключом ответ первого («ok») навсегда отменял вопрос для второго.
+    const key = WRITE_ACCESS_KEY_ + "_" + user.id;
     let saved = "";
-    try { saved = window.localStorage.getItem(WRITE_ACCESS_KEY_) || ""; } catch { /* хранилище недоступно */ }
+    try { saved = window.localStorage.getItem(key) || ""; } catch { /* хранилище недоступно */ }
     if (saved === "ok") return;
     if (saved && Date.now() - Number(saved) < 24 * 60 * 60 * 1000) return;
-    try { window.localStorage.setItem(WRITE_ACCESS_KEY_, String(Date.now())); } catch { /* хранилище недоступно */ }
+    try { window.localStorage.setItem(key, String(Date.now())); } catch { /* хранилище недоступно */ }
     app.requestWriteAccess((allowed) => {
       if (!allowed) return;
-      try { window.localStorage.setItem(WRITE_ACCESS_KEY_, "ok"); } catch { /* хранилище недоступно */ }
+      try { window.localStorage.setItem(key, "ok"); } catch { /* хранилище недоступно */ }
     });
   } catch (err) {
     console.warn("[telegram] requestWriteAccess недоступен:", err);

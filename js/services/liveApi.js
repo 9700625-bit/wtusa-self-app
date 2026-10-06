@@ -55,9 +55,14 @@ async function запросить_(url, options, таймаутМс) {
     // AbortController есть во всех браузерах, где работает Telegram Mini App.
     const controller = new AbortController();
     const таймер = setTimeout(() => controller.abort(), таймаутМс || ТАЙМАУТ_МС);
-    let resp;
+    let текст;
     try {
-        resp = await fetch(url, { ...(options || {}), signal: controller.signal });
+        const resp = await fetch(url, { ...(options || {}), signal: controller.signal });
+        // ТЕЛО ОТВЕТА — ПОД ТЕМ ЖЕ ТАЙМЕРОМ И ТЕМ ЖЕ catch (05.10.2026). Раньше оно
+        // читалось после: обрыв связи посреди ответа показывался студенту как «Что-то
+        // пошло не так на нашей стороне» и уходил владельцу как ошибка приложения, а
+        // зависшее чтение не обрывалось вовсе.
+        текст = await resp.text();
     } catch (err) {
         // Различаем «истекло время» и «сети нет» — на экране это разные советы.
         if (err && err.name === "AbortError") throw new Error("TIMEOUT");
@@ -66,7 +71,6 @@ async function запросить_(url, options, таймаутМс) {
         clearTimeout(таймер);
     }
 
-    const текст = await resp.text();
     let json;
     try {
         json = JSON.parse(текст);
@@ -304,7 +308,18 @@ export async function toggleChecklistItem(itemId) {
     // ответ игнорировался и состояние выбрасывалось целиком, из-за чего
     // экран после каждой галочки заново тянул все восемь листов.
     const checklist = await apiPost("toggleChecklist", { itemId });
-    patchState_("preDepartureChecklist", Array.isArray(checklist) ? checklist : null);
+    // ИЗ ОТВЕТА БЕРЁМ ТОЛЬКО СВОЙ ПУНКТ (05.10.2026). Бэкенд отвечает списком, каким он его
+    // ПРОЧИТАЛ в начале запроса, плюс свой переключённый пункт (toggleChecklistItem_, замка нет).
+    // Студент отмечает пункты подряд — запросы идут одновременно, и в ответе на второй ещё нет
+    // галочки первого. Раньше каждый ответ целиком заменял список в кеше: побеждал последний,
+    // на экране часть галочек пропадала, хотя в таблице они стояли, а повторное нажатие их СНИМАЛО.
+    const mine = Array.isArray(checklist) ? checklist.find((i) => i && i.id === itemId) : null;
+    const current = stateCache && Array.isArray(stateCache.preDepartureChecklist) ? stateCache.preDepartureChecklist : null;
+    if (mine && current && current.some((i) => i.id === itemId)) {
+        patchState_("preDepartureChecklist", current.map((i) => (i.id === itemId ? { ...i, done: mine.done } : i)));
+    } else {
+        patchState_("preDepartureChecklist", Array.isArray(checklist) ? checklist : null);
+    }
     return checklist;
 }
 
@@ -407,7 +422,15 @@ export async function getEvents() {
 }
 
 export async function respondEvent(groupId, choice, chosenEventId) {
-    const result = await apiPost("respondEvent", { groupId, choice, chosenEventId });
+    let result;
+    try {
+        result = await apiPost("respondEvent", { groupId, choice, chosenEventId });
+    } catch (err) {
+        // Отказ сервера («нет мест», «приглашение не найдено», «время недоступно») означает, что
+        // список на экране устарел: сбрасываем кеш, иначе занятое время ещё 5 минут рисуется свободным.
+        if (!/^(OFFLINE|TIMEOUT|BACKEND_HTML)$/.test(String(err && err.message))) eventsCache = null;
+        throw err;
+    }
     eventsCache = null; // ответ студента меняет список — показываем свежий
     return result;
 }
