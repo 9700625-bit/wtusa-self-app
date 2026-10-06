@@ -51,7 +51,9 @@ export function formatMoney(amount, currency = "USD") {
 export function daysUntil(isoDate) {
   const target = dateOnly_(isoDate);
   if (!target) return null;
-  const diffMs = target.getTime() - NOW.getTime();
+  // 06.10.2026: от текущего момента, а не от NOW (момент открытия): приложение, оставленное
+  // открытым на несколько дней, показывало «осталось 2 дня» у срока, который уже прошёл.
+  const diffMs = target.getTime() - Date.now();
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 }
 
