@@ -13,7 +13,7 @@
        preconnect экономит рукопожатие: ~100 мс на первом открытии. -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" media="print" onload="this.media='all'" />
   <link rel="stylesheet" href="css/styles.css" />
   <!-- Иконка вкладки. Инлайном, чтобы не тратить отдельный запрос и не
        ловить 404 на /favicon.ico, который браузер просит сам. -->
@@ -99,5 +99,23 @@
   }
 </script>
 <script type="module" src="js/app.js" onerror="__appLoadFailed()"></script>
+<script>
+  /* СТРАХОВКА ОТ ПУСТОГО ЭКРАНА ПОСЛЕ ПУБЛИКАЦИИ (06.10.2026). Если на телефоне оказались файлы
+     приложения разных версий (часть из кеша, часть новые) или в файле ошибка, браузер не
+     запускает НИ ОДНОГО модуля и onerror у тега выше не вызывает: студент видел пустую страницу
+     без слов и кнопок. Событие load наступает после попытки запуска: при обычном старте на
+     экране к этому моменту уже есть «Подключаем ваш профиль» или индикатор загрузки. Пусто —
+     значит, приложение не стартовало. */
+  window.addEventListener("load", function () {
+    setTimeout(function () {
+      var root = document.getElementById("screen-root");
+      if (!root || root.innerHTML.trim() !== "") return;
+      root.innerHTML =
+        '<div class="card"><h2>Приложение обновляется</h2>' +
+        '<div class="sub">Мы только что выпустили новую версию, и телефон ещё не скачал её целиком. Нажмите «Обновить». Если не помогло — закройте приложение и откройте его снова через несколько минут.</div>' +
+        '<button class="btn btn-primary" style="margin-top:14px" onclick="location.reload()">Обновить</button></div>';
+    }, 1500);
+  });
+</script>
 </body>
 </html>
