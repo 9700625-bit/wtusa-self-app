@@ -12,8 +12,13 @@ function nearestEventFrom_(events) {
     const candidates = chosen ? [chosen] : ev.slots;
     candidates.forEach((s) => {
       if (!s.date) return;
+      // Прошло ли — считаем по времени слота (с запасом в час), как на экране «Мероприятия»:
+      // раньше сравнивалась только дата, и встреча в 10:00 до полуночи висела в «Ближайшем».
+      // Время не разобралось (нестандартная запись) — как раньше, судим по одной дате.
       const d = new Date(s.date + "T00:00:00");
-      if (isNaN(d) || d < today) return;
+      if (isNaN(d)) return;
+      const end = new Date(s.date + "T" + (s.time || "23:59") + ":00").getTime();
+      if (isNaN(end) ? d < today : end + 60 * 60 * 1000 < Date.now()) return;
       const key = s.date + (s.time || "");
       if (!best || key < best.key) best = { key, title: ev.title, date: s.date, time: s.time || "", groupId: ev.groupId, booked: !!chosen };
     });
@@ -31,11 +36,21 @@ export async function render(container) {
   // висел, пока сервер отдаёт список мероприятий (2–5 с на Apps Script), хотя
   // всё остальное уже было в кеше. Не успели — рисуем без брифинга; список
   // продолжит грузиться в фоне и попадёт в кеш к следующему заходу.
+  // 05.10: 1,2 с отсчитывались от начала отрисовки, даже когда главная всё равно ждала состояние
+  // (первое открытие: state ~3 с, events ~2 с) — события приходили РАНЬШЕ состояния и всё равно
+  // отбрасывались. Теперь ждём события, пока не готово состояние И не прошло 1,2 с; а если они
+  // опоздали — тихо перерисовываем экран, когда придут (как фоновое обновление).
+  const dashboardPromise = api.getDashboard();
+  const eventsPromise = api.getEvents().catch(() => []);
+  let опоздали = false;
   const eventsSoon = Promise.race([
-    api.getEvents().catch(() => []),
-    new Promise((resolve) => setTimeout(() => resolve([]), 1200)),
+    eventsPromise,
+    Promise.all([dashboardPromise.catch(() => null), new Promise((resolve) => setTimeout(resolve, 1200))]).then(() => { опоздали = true; return []; }),
   ]);
-  const [dashboard, events] = await Promise.all([api.getDashboard(), eventsSoon]);
+  eventsPromise.then((list) => {
+    if (опоздали && list && list.length && container.isConnected && (window.location.hash === "" || /^#\/?(home|tgWebAppData)/.test(window.location.hash))) window.dispatchEvent(new Event("state-refreshed"));
+  });
+  const [dashboard, events] = await Promise.all([dashboardPromise, eventsSoon]);
   const { currentStage, progress, action, nearestPayment, participant } = dashboard;
   const nearestBriefing = nearestEventFrom_(events);
   // ПРИВЕТСТВИЕ БЕЗ ИМЕНИ (23.09.2026, решение владельца). Имена в amoCRM

@@ -55,7 +55,10 @@ export async function render(container, params) {
 
   let extraHtml = "";
 
-  if (stage.id === "CIEE_REGISTRATION" && stage.deadlineDays) {
+  // ТОЛЬКО НА ТЕКУЩЕМ ЭТАПЕ (05.10.2026). Карточка «Срок активации · Осталось 5 дней»
+  // рисовалась и тем, кто до этапа ещё не дошёл, и тем, кто давно его прошёл
+  // (экран открывается из «Пути» для любого этапа).
+  if (stage.id === "CIEE_REGISTRATION" && stage.deadlineDays && isCurrentStage) {
     // stage.cieeDaysRemaining is the real count from deriveStageDetail() once
     // the backend knows this participant's actual registration date (see
     // Api.gs/deriveViews.js). Without it (mock data, or before that date is
@@ -103,7 +106,11 @@ export async function render(container, params) {
       </div>`;
   }
 
-  if (stage.id === "VISA_APPROVED" && stage.checklist) {
+  // ЧЕК-ЛИСТ — КОГДА ВИЗА УЖЕ ЕСТЬ (05.10.2026). Будущий этап из «Пути» теперь
+  // открывается обычным экраном этапа (см. utils/navigation.js), а не поздравлением.
+  // Чек-лист вылета и «READY TO FLY» студенту, который до визы ещё не дошёл,
+  // не показываем.
+  if (stage.id === "VISA_APPROVED" && stage.checklist && detail.status !== "upcoming") {
     // amoCRM has no status after VISA APPROVE (the deal is simply won from
     // here), so there's no separate "Pre-Departure"/"Ready to fly" stage to
     // advance current_stage_id into — this whole checklist lives inside
@@ -119,8 +126,8 @@ export async function render(container, params) {
           .map(
             (item) => `
           <label class="status" style="cursor:pointer">
-            <input type="checkbox" data-checklist="${item.id}" ${item.done ? "checked" : ""} style="width:18px;height:18px;margin-top:2px" />
-            <div><b style="${item.done ? "text-decoration:line-through;color:var(--muted)" : ""}">${item.label}</b></div>
+            <input type="checkbox" data-checklist="${esc(item.id)}" ${item.done ? "checked" : ""} style="width:18px;height:18px;margin-top:2px" />
+            <div><b style="${item.done ? "text-decoration:line-through;color:var(--muted)" : ""}">${esc(item.label)}</b></div>
           </label>`
           )
           .join("")}
@@ -257,8 +264,16 @@ container.querySelectorAll("[data-cta]").forEach((btn) => {
       // заходе галочка исчезала без объяснений.
       const былаОтмечена = input.checked;
       try {
-        await api.toggleChecklistItem(input.dataset.checklist);
-        render(container, params);
+        // Экран перерисовываем, когда пришли ответы на ВСЕ нажатые галочки: иначе ответ на
+        // первую перерисовывал список, и ещё сохраняющиеся пункты на миг показывались пустыми.
+        галочекСохраняется_++;
+        try { await api.toggleChecklistItem(input.dataset.checklist); } finally { галочекСохраняется_--; }
+        // Экран, с которого студент уже ушёл, не перерисовываем. Пока сохраняются другие
+        // галочки — только возвращаем этой возможность нажатия: иначе, если последняя из
+        // них не сохранится (перерисовки не будет), эта осталась бы заблокированной.
+        if (container.isConnected === false) return;
+        if (галочекСохраняется_ === 0) render(container, params).catch(() => { input.disabled = false; });
+        else input.disabled = false;
       } catch (err) {
         console.error("[checklist] не удалось сохранить:", err);
         input.checked = !былаОтмечена; // возвращаем как было — правда важнее вида
@@ -279,6 +294,8 @@ container.querySelectorAll("[data-cta]").forEach((btn) => {
     });
   });
 }
+
+let галочекСохраняется_ = 0;
 
 function severityBorderColor(severity) {
   const map = { ok: "var(--ok)", active: "#4c78ff", wait: "var(--muted)", warn: "var(--warn)", danger: "var(--red)" };

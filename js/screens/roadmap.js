@@ -1,6 +1,6 @@
 import * as api from "../services/api.js";
 import { stageRoute } from "../utils/navigation.js";
-import { formatDate } from "../utils/format.js?v=3";
+import { formatDate, esc } from "../utils/format.js?v=3";
 
 // ЕДИНЫЕ МАРКЕРЫ (22.09.2026). Раньше у текущего этапа на тёмной плашке
 // показывалось эмодзи из конфига (✅, 🔵, 📅…): они разные на iPhone и
@@ -102,7 +102,7 @@ export async function render(container) {
   container.innerHTML = `
     <section class="screen active">
       <div class="card">
-        <div class="kicker">${подпись}</div>
+        <div class="kicker">${esc(подпись)}</div>
         <h1>Мой путь</h1>
         <div class="sub">От оформления до вылета в США · прогресс ${progress}%</div>
       </div>

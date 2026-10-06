@@ -21,13 +21,26 @@ const CELEBRATION_COPY = {
   },
 };
 
-export async function render(container, params) {
+export async function render(container, params, роутер) {
   const stageId = params[0];
   const detail = await api.getStageDetail(stageId);
   const copy = CELEBRATION_COPY[stageId];
 
+  // Пока ждали данные, студент открыл другой экран — никуда его не перенаправляем.
+  if (роутер && typeof роутер.актуальна === "function" && !роутер.актуальна()) return;
+
   if (!detail || !copy) {
     window.location.hash = "home";
+    return;
+  }
+
+  // ПОЗДРАВЛЯЕМ ТОЛЬКО С ТЕМ, ЧТО СЛУЧИЛОСЬ (05.10.2026). Экран не смотрел, дошёл ли
+  // студент до этапа: по любой ссылке вида celebration/<этап> он поздравлял с визой
+  // или DS-2019 того, у кого их ещё нет. Будущий этап открываем обычным экраном
+  // этапа; redirect роутера не оставляет этот адрес в истории, чтобы «Назад» не зациклился.
+  if (detail.status === "upcoming") {
+    if (роутер && typeof роутер.redirect === "function") роутер.redirect("status/" + stageId);
+    else window.location.hash = "status/" + stageId;
     return;
   }
 

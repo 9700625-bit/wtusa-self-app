@@ -4,6 +4,10 @@ import { formatDate, formatMoney, daysLabel, esc } from "../utils/format.js?v=3"
 
 function timingText(p) {
   if (p.status === "paid" && p.paidDate) return `Оплачено ${formatDate(p.paidDate)}`;
+  // Оплачен, но даты оплаты нет (05.10.2026): без этой строки под оплаченным платежом
+  // печаталось бы «до … · просрочено на N дней». Сегодня бэкенд дату ставит всегда;
+  // строка нужна, чтобы он мог перестать подставлять «дату первой сверки» вместо настоящей.
+  if (p.status === "paid") return "Оплачено";
   // Срок может быть ещё не известен: пока вебхук amoCRM не принёс дедлайны,
   // mergeWithDefaultPayments_ (Api.gs) отдаёт deadline: null. Без этой ветки
   // получалось «до » с висящим предлогом (а до правки formatDate — «до null»).
@@ -54,7 +58,7 @@ export async function render(container) {
           return `
       <div class="pay">
         <div>
-          <b>${p.label}</b>
+          <b>${esc(p.label)}</b>
           <div class="small">${timingText(p)} · ${
             // Сумма третьего платежа приходит из amoCRM и до синхронизации
             // равна нулю. Раньше это рисовалось как «Оплата 3 · $0» и читалось
@@ -104,7 +108,7 @@ export async function render(container) {
       return `
         <div class="status">
           <span class="dot ${dot}"></span>
-          <div><b>${fee.label}</b><div class="sub">${note}</div><div class="sub">Оплата в тенге по курсу посольства США</div></div>
+          <div><b>${esc(fee.label)}</b><div class="sub">${note}</div><div class="sub">Оплата в тенге по курсу посольства США</div></div>
         </div>`;
     })
     .join("");

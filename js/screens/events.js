@@ -130,6 +130,25 @@ function isPastEvent(ev) {
   });
 }
 
+/**
+ * ПРОШЕДШЕЕ ВРЕМЯ НЕ ПРЕДЛАГАЕМ (05.10.2026). У брифинга два времени: вчера и послезавтра.
+ * Студент, который ещё не ответил, открывал приглашение и видел календарь, открытый на ВЧЕРАШНЕЙ
+ * дате (первая по порядку), со вчерашним временем в списке — два нажатия, и он «записан» на
+ * встречу, которая уже прошла (бэкенд дату не проверяет). Прошедшие слоты из выбора убираем;
+ * уже выбранный слот и целиком прошедшее мероприятие не трогаем — их рисуют свои ветки.
+ * Запас в час — как в isPastEvent.
+ */
+function slotPassed_(s) {
+  if (!s.date) return false;
+  const end = new Date(s.date + "T" + (s.time || "23:59") + ":00").getTime();
+  return !isNaN(end) && end + 60 * 60 * 1000 < Date.now();
+}
+function withoutPassedSlots_(ev) {
+  if (ev.attended !== null || isPastEvent(ev)) return ev;
+  const slots = ev.slots.filter((s) => !slotPassed_(s) || s.id === ev.chosenEventId);
+  return slots.length === ev.slots.length ? ev : { ...ev, slots };
+}
+
 function isSummaryView(ev, state) {
   if (ev.attended !== null) return true;
   if (isPastEvent(ev)) return true;
@@ -155,7 +174,7 @@ function splitRosterAndExtra_(events) {
 }
 
 export async function render(container, params = []) {
-  const events = await api.getEvents();
+  const events = (await api.getEvents()).map(withoutPassedSlots_);
   cardState.clear();
 
   if (!events.length && !BRIEFING_ROSTER.length) {
@@ -256,7 +275,14 @@ export async function render(container, params = []) {
   if (targetGroupId) {
     const targetCard = container.querySelector(`.evt-card[data-group="${CSS.escape(targetGroupId)}"]`);
     if (targetCard) {
-      targetCard.scrollIntoView({ behavior: "smooth", block: "center" });
+      // ПРОКРУТКА К КАРТОЧКЕ — ПОСЛЕ РОУТЕРА (05.10.2026). Роутер, показав экран,
+      // прокручивает страницу в начало и этим отменял прокрутку к карточке:
+      // по ссылке из приглашения студент видел верх списка, а нужная карточка
+      // оставалась ниже экрана. Откладываем на следующий такт — к этому
+      // моменту экран уже на странице и роутер свою прокрутку сделал.
+      setTimeout(() => {
+        if (targetCard.isConnected !== false) targetCard.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 0);
       targetCard.classList.add("evt-card-highlight");
       setTimeout(() => targetCard.classList.remove("evt-card-highlight"), 2200);
     }
@@ -268,13 +294,14 @@ async function doConfirm(container, groupId, chosenEventId, btnEl) {
   btnEl.disabled = true;
   try {
     await api.respondEvent(groupId, "confirm", chosenEventId);
-    render(container);
+    перерисовать_(container, btnEl);
   } catch (err) {
     btnEl.disabled = false;
     // Через штатное окно Telegram, а не голый window.alert: системное окно
     // браузера внутри Mini App выглядит чужеродно. И не показываем сырой
     // err.message — там технический текст с бэкенда (02.09.2026).
     showAlert(понятнаяОшибка_(err, "Не удалось записаться, попробуйте ещё раз."));
+    if (списокУстарел_(err)) перерисовать_(container, btnEl);
   }
 }
 
@@ -282,11 +309,31 @@ async function doDecline(container, groupId, btnEl) {
   btnEl.disabled = true;
   try {
     await api.respondEvent(groupId, "decline");
-    render(container);
+    перерисовать_(container, btnEl);
   } catch (err) {
     btnEl.disabled = false;
     showAlert(понятнаяОшибка_(err, "Не удалось сохранить ответ, попробуйте ещё раз."));
+    if (списокУстарел_(err)) перерисовать_(container, btnEl);
   }
+}
+
+/** Сервер отказал по существу (мест нет, приглашение или время пропали) — список надо перечитать.
+ *  «Система сейчас занята» — нет: там достаточно нажать ещё раз, выбор студента сохраняем. */
+function списокУстарел_(err) {
+  const код = String((err && err.message) || "");
+  return /[а-яё]/i.test(код) && код.indexOf("Система сейчас занята") === -1;
+}
+
+/** Перечитать и перерисовать список после ответа сервера. Только если экран ещё на
+ *  странице: пока шёл запрос, студент мог уйти на другую вкладку — раньше список
+ *  мероприятий рисовался поверх неё (05.10.2026). Если перечитать не удалось
+ *  (пропала связь) — возвращаем кнопку, иначе она оставалась серой навсегда. */
+function перерисовать_(container, btnEl) {
+  if (container.isConnected === false) return;
+  render(container).catch((err) => {
+    console.warn("[events] не удалось обновить список:", err);
+    if (btnEl) btnEl.disabled = false;
+  });
 }
 
 function rerenderCard(cardEl, ev) {
@@ -388,7 +435,7 @@ function pastBodyHtml(ev) {
       <div class="sub">${esc(ev.title)}</div>
     </div>
     <div class="evt-meta" style="margin-top:14px">
-      <div class="evt-meta-row"><span class="evt-meta-ico">${I.clock}</span> ${formatDate(slot.date)}${slot.time ? " · " + slot.time : ""}</div>
+      <div class="evt-meta-row"><span class="evt-meta-ico">${I.clock}</span> ${formatDate(slot.date)}${slot.time ? " · " + esc(slot.time) : ""}</div>
       ${wasBooked ? `<div class="sub" style="margin-top:6px">Вы были записаны. Отметка о посещении появится после проверки координатором.</div>` : ""}
     </div>`;
 }
@@ -403,7 +450,7 @@ function confirmedBodyHtml(ev) {
       <div class="sub">${esc(ev.title)}</div>
     </div>
     <div class="evt-meta" style="margin-top:14px">
-      <div class="evt-meta-row"><span class="evt-meta-ico">${I.clock}</span> ${formatDate(slot.date)}${slot.time ? " · " + slot.time : ""}</div>
+      <div class="evt-meta-row"><span class="evt-meta-ico">${I.clock}</span> ${formatDate(slot.date)}${slot.time ? " · " + esc(slot.time) : ""}</div>
       ${slot.location ? `<div class="evt-meta-row"><span class="evt-meta-ico">${I.pin}</span> ${esc(slot.location)}</div>` : ""}
     </div>
     <div class="evt-links-row">
@@ -434,7 +481,7 @@ function confirmPanelHtml(ev, state, showBackLink) {
   const confirmLabel = full ? "Мест нет" : ev.status === "confirmed" ? "Подтвердить новое время" : "Записаться";
   return `
     <div class="evt-meta">
-      <div class="evt-meta-row"><span class="evt-meta-ico">${I.clock}</span> ${formatDate(slot.date)}${slot.time ? " · " + slot.time : ""}</div>
+      <div class="evt-meta-row"><span class="evt-meta-ico">${I.clock}</span> ${formatDate(slot.date)}${slot.time ? " · " + esc(slot.time) : ""}</div>
       ${slot.location ? `<div class="evt-meta-row"><span class="evt-meta-ico">${I.pin}</span> ${esc(slot.location)}</div>` : ""}
       ${slot.spotsLeft !== null ? `<div class="evt-meta-row"><span class="evt-meta-ico">${I.people}</span> ${full ? "мест нет" : "свободных мест: " + slot.spotsLeft}</div>` : ""}
     </div>
@@ -491,7 +538,7 @@ function calendarBodyHtml(ev, state) {
              const isCurrent = s.id === ev.chosenEventId;
              const cls = ["evt-slot", full ? "full" : "", isCurrent ? "selected" : ""].filter(Boolean).join(" ");
              return `<button type="button" class="${cls}" data-slot="${s.id}" ${full ? "disabled" : ""}>
-               <span class="evt-slot-date">${s.time || "время не указано"}</span>
+               <span class="evt-slot-date">${esc(s.time) || "время не указано"}</span>
                ${s.spotsLeft !== null ? `<span class="evt-slot-spots">${full ? "мест нет" : "мест: " + s.spotsLeft}</span>` : ""}
              </button>`;
            })
