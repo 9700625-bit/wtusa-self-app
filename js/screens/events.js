@@ -380,7 +380,7 @@ function rosterPlaceholderHtml(item) {
 }
 
 function cardWrapperHtml(ev) {
-  return `<div class="card evt-card" data-group="${ev.groupId}">${cardInnerHtml(ev)}</div>`;
+  return `<div class="card evt-card" data-group="${esc(ev.groupId)}">${cardInnerHtml(ev)}</div>`;
 }
 
 function cardInnerHtml(ev) {
@@ -455,7 +455,7 @@ function confirmedBodyHtml(ev) {
     </div>
     <div class="evt-links-row">
       ${hasChoice ? `<button type="button" data-change-time>Изменить время</button>` : ""}
-      <button type="button" class="danger" data-do-decline="${ev.groupId}">Не смогу прийти</button>
+      <button type="button" class="danger" data-do-decline="${esc(ev.groupId)}">Не смогу прийти</button>
     </div>`;
 }
 
@@ -483,12 +483,12 @@ function confirmPanelHtml(ev, state, showBackLink) {
     <div class="evt-meta">
       <div class="evt-meta-row"><span class="evt-meta-ico">${I.clock}</span> ${formatDate(slot.date)}${slot.time ? " · " + esc(slot.time) : ""}</div>
       ${slot.location ? `<div class="evt-meta-row"><span class="evt-meta-ico">${I.pin}</span> ${esc(slot.location)}</div>` : ""}
-      ${slot.spotsLeft !== null ? `<div class="evt-meta-row"><span class="evt-meta-ico">${I.people}</span> ${full ? "мест нет" : "свободных мест: " + slot.spotsLeft}</div>` : ""}
+      ${slot.spotsLeft !== null ? `<div class="evt-meta-row"><span class="evt-meta-ico">${I.people}</span> ${full ? "мест нет" : "свободных мест: " + Number(slot.spotsLeft)}</div>` : ""}
     </div>
     ${showBackLink ? `<button type="button" class="evt-back-link" data-back-to-calendar>‹ Выбрать другое время</button>` : ""}
     <div class="evt-actions" style="margin-top:12px">
-      <button class="btn" data-do-confirm="${ev.groupId}" ${full ? "disabled" : ""}>${confirmLabel}</button>
-      <button class="btn secondary" data-do-decline="${ev.groupId}">Не приду</button>
+      <button class="btn" data-do-confirm="${esc(ev.groupId)}" ${full ? "disabled" : ""}>${confirmLabel}</button>
+      <button class="btn secondary" data-do-decline="${esc(ev.groupId)}">Не приду</button>
     </div>`;
 }
 
@@ -537,9 +537,9 @@ function calendarBodyHtml(ev, state) {
              // booking before they change it.
              const isCurrent = s.id === ev.chosenEventId;
              const cls = ["evt-slot", full ? "full" : "", isCurrent ? "selected" : ""].filter(Boolean).join(" ");
-             return `<button type="button" class="${cls}" data-slot="${s.id}" ${full ? "disabled" : ""}>
+             return `<button type="button" class="${cls}" data-slot="${esc(s.id)}" ${full ? "disabled" : ""}>
                <span class="evt-slot-date">${esc(s.time) || "время не указано"}</span>
-               ${s.spotsLeft !== null ? `<span class="evt-slot-spots">${full ? "мест нет" : "мест: " + s.spotsLeft}</span>` : ""}
+               ${s.spotsLeft !== null ? `<span class="evt-slot-spots">${full ? "мест нет" : "мест: " + Number(s.spotsLeft)}</span>` : ""}
              </button>`;
            })
            .join("")}
@@ -558,6 +558,6 @@ function calendarBodyHtml(ev, state) {
     <div class="cal-grid">${dayCellsHtml}</div>
     ${timesHtml}
     <div class="evt-links-row" style="margin-top:14px">
-      <button type="button" class="danger" data-do-decline="${ev.groupId}">Не смогу прийти</button>
+      <button type="button" class="danger" data-do-decline="${esc(ev.groupId)}">Не смогу прийти</button>
     </div>`;
 }

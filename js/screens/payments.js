@@ -30,9 +30,13 @@ export async function render(container) {
   // ориентировочную сумму в тенге на сегодня и даём ссылку на страницу курсов.
   // Точная сумма — по курсу на день оплаты, поэтому «≈». Нет курса — старая
   // подпись без чисел.
-  const kzt = (usd) => Math.round(Number(usd) * fxRate.usdKzt).toLocaleString("ru-RU") + " ₸";
-  const rateText = fxRate && fxRate.usdKzt
-    ? `курс НБ РК ${fxRate.usdKzt.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₸/$` + (fxRate.date ? ` на ${esc(fxRate.date)}` : "")
+  // КУРС — ТОЛЬКО ЧИСЛО, ССЫЛКА — ТОЛЬКО https (06.10.2026). Значение курса шло в разметку
+  // как есть (у строки .toLocaleString() возвращает саму строку), а адрес ссылки — с любой
+  // схемой, включая javascript:. Сервер шлёт число и https-адрес; экран на это не полагается.
+  const usdKzt = fxRate && Number(fxRate.usdKzt) > 0 ? Number(fxRate.usdKzt) : 0;
+  const kzt = (usd) => Math.round(Number(usd) * usdKzt).toLocaleString("ru-RU") + " ₸";
+  const rateText = usdKzt
+    ? `курс НБ РК ${usdKzt.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₸/$` + (fxRate.date ? ` на ${esc(fxRate.date)}` : "")
     : "";
 
   // Was previously left as `` when payments.length === 0, rendering a
@@ -46,7 +50,7 @@ export async function render(container) {
           // involved. Payments 2/3 are quoted in $ but paid in tenge, so the
           // exact tenge amount depends on the National Bank of RK's rate on the
           // day of payment — we don't try to compute it ourselves.
-          const showKzt = currency === "USD" && fxRate && fxRate.usdKzt && Number(p.amount) > 0 && p.status !== "paid";
+          const showKzt = currency === "USD" && usdKzt && Number(p.amount) > 0 && p.status !== "paid";
           const rateNote =
             currency === "USD"
               ? `<div class="small" style="margin-top:2px">${
@@ -72,7 +76,7 @@ export async function render(container) {
         })
         .join("")
     : `<div class="sub">График платежей пока не сформирован — появится после оформления сделки.</div>`;
-  const rateLinkHtml = fxRate && fxRate.url
+  const rateLinkHtml = fxRate && /^https:\/\//i.test(String(fxRate.url || ""))
     ? `<a class="link-row" href="${esc(fxRate.url)}" target="_blank" rel="noopener">Официальные курсы Нацбанка РК<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></a>`
     : "";
 
