@@ -28,7 +28,9 @@ export function formatDate(isoDate, opts = {}) {
   //
   // Непарсящаяся, но непустая строка по-прежнему возвращается как есть —
   // лучше показать сырое значение, чем потерять его.
-  if (!d) return isoDate || "";
+  // Сырое значение идёт в разметку — экранируем (05.10.2026): все вызовы formatDate
+  // подставляют результат в innerHTML.
+  if (!d) return esc(isoDate || "");
   const day = d.getDate();
   const month = RU_MONTHS[d.getMonth()];
   const now = new Date();
