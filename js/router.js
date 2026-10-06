@@ -38,6 +38,15 @@ export function goBack() {
   navigate(previous || "home");
 }
 
+/** Заменяет текущий экран другим, не оставляя его в истории «Назад»
+ * (иначе «Назад» с нового экрана вернул бы на экран, который снова перенаправит).
+ * Не экспортируется: экран получает её третьим аргументом render — так файлы
+ * экранов не зависят от того, какая версия router.js оказалась в кеше браузера. */
+function redirect(path) {
+  historyStack.pop();
+  navigate(path);
+}
+
 function parseHash() {
   const raw = window.location.hash.replace(/^#\/?/, "");
   const [name, ...rest] = raw.split("/").filter(Boolean);
@@ -52,6 +61,18 @@ window.addEventListener("state-refreshed", () => {
   if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA")) return;
   render(true);
 });
+
+// НОМЕР ОТРИСОВКИ (05.10.2026). Экраны ждут разные данные и заканчивают не в том
+// порядке, в каком были открыты: студент нажал «События» (ответ идёт 5 с), потом
+// «Оплата» (готова сразу) — через 4 с «События» рисовались ПОВЕРХ «Оплаты»: адрес
+// и подсветка меню — одного экрана, содержимое — другого, а повторное нажатие на
+// вкладку ничего не делало (адрес тот же). На первом запуске так же главная
+// затирала любую вкладку, открытую, пока шла загрузка. Теперь каждый экран
+// рисуется в свой отдельный блок, а на страницу блок попадает, только если с
+// начала его отрисовки не началась более новая. Опоздавший экран просто
+// отбрасывается; его поздние перерисовки (после «Записаться», после галочки
+// чек-листа) идут в тот же отброшенный блок и на странице не видны.
+let renderSeq = 0;
 
 async function render(force) {
   if (!containerEl) return;
@@ -82,6 +103,10 @@ async function render(force) {
     historyStack.push(currentEntry);
   }
 
+  const seq = ++renderSeq;
+  const актуальна = () => seq === renderSeq;
+  const холст = document.createElement("div");
+
   containerEl.setAttribute("aria-busy", "true");
   // The opacity dim above (see styles.css) only reads as "loading" when
   // there's a previous screen underneath it to dim -- on the very first
@@ -95,12 +120,20 @@ async function render(force) {
     containerEl.innerHTML = `<div class="loading-spinner" role="status" aria-label="Загрузка"><span class="spinner-dot"></span></div>`;
   }
   try {
-    await renderFn(containerEl, params);
+    await renderFn(холст, params, { актуальна, redirect });
+    if (!актуальна()) return; // пока экран загружался, студент открыл другой
+    // Экран, который сам ничего не нарисовал (перенаправил на другой адрес),
+    // прежнее содержимое не стирает — его заменит следующий экран.
+    if (холст.childNodes.length) {
+      containerEl.innerHTML = "";
+      containerEl.appendChild(холст);
+    }
   } catch (err) {
     console.error("[router] screen render failed:", resolvedName, err);
     // Мониторинг (23.09.2026): экран не отрисовался — это и есть тот баг, о
     // котором владелец должен узнать раньше студента. Обработчик в app.js.
     if (typeof window.__reportScreenError === "function") window.__reportScreenError(err, "screen:" + resolvedName);
+    if (!актуальна()) return; // ошибка экрана, с которого уже ушли, — карточку не рисуем
     // ЧЕЛОВЕЧЕСКИЙ ТЕКСТ ОШИБКИ (02.09.2026).
     //
     // Здесь стояла временная заглушка, показывавшая студенту сырое сообщение
@@ -156,7 +189,8 @@ async function render(force) {
     // иначе проверка «этот хэш уже отрисован» молча отменит повтор.
     if (кнопка) кнопка.addEventListener("click", () => render(true));
   } finally {
-    containerEl.removeAttribute("aria-busy");
+    // Затемнение «идёт загрузка» снимает только самая свежая отрисовка.
+    if (актуальна()) containerEl.removeAttribute("aria-busy");
   }
 
   window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });

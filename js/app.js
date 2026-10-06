@@ -3,6 +3,7 @@ import { renderNav, setActiveNav } from "./components/nav.js";
 import { initTelegram, getStartParam, requestWriteAccessIfNeeded } from "./services/telegram.js";
 import { isLiveBackendConfigured } from "./services/config.js";
 import * as api from "./services/api.js";
+import { esc } from "./utils/format.js?v=3";
 
 import * as home from "./screens/home.js";
 import * as roadmap from "./screens/roadmap.js";
@@ -137,7 +138,8 @@ async function показатьОшибкуПривязки_(err, token) {
   } else if (/[А-Яа-я]/.test(код)) {
     // Бэкенд прислал объяснение на русском (например «Эта сделка уже
     // привязана к другому аккаунту Telegram») — оно точнее любого нашего.
-    текст = код;
+    // Текст с сервера идёт в разметку — экранируем (05.10.2026).
+    текст = esc(код);
   } else {
     текст = "Попробуйте открыть ссылку ещё раз или напишите координатору.";
   }
@@ -154,7 +156,10 @@ async function показатьОшибкуПривязки_(err, token) {
       повтор.disabled = true;
       повтор.textContent = "Подключаем…";
       try {
-        await api.linkAccount(token);
+        // Как при первом входе: сервер не ответил за 60 с — роутер покажет
+        // «Подключение ещё идёт» с кнопкой, а не «Откройте ссылку из WhatsApp» без неё.
+        const итог = await api.linkAccount(token);
+        if (итог && итог.pending) window.__linkPending = true;
         initRouter(contentEl);
         подставитьСезонВШапку();
       } catch (e2) {
@@ -207,6 +212,14 @@ async function handleStartParam() {
       // Студент уже привязан (чужая ссылка на новом телефоне / после очистки памяти):
       // его приложение работает — пускаем внутрь, а не оставляем на экране ошибки.
       if (String(err && err.message).indexOf("Вы уже подключены") !== -1) return;
+      // ССЫЛКА НЕ ПОДОШЛА, НО АККАУНТ УЖЕ ПОДКЛЮЧЁН (05.10.2026). Студент подключился по новой
+      // ссылке, а потом открыл приложение старым сообщением из WhatsApp (ссылка использована
+      // другим аккаунтом / просрочена / чужая). Бэкенд ссылку отклоняет, но сам студент
+      // привязан и `state` ему отвечает — раньше он оставался на экране ошибки без входа в
+      // приложение. Спрашиваем состояние: ответило — пускаем внутрь; нет — показываем отказ.
+      if (!/^(OFFLINE|TIMEOUT|BACKEND_HTML)$/.test(String(err && err.message))) {
+        try { await api.getMe(); return; } catch (ignore) { /* не подключён — причина отказа ниже */ }
+      }
       if (contentEl) {
         await показатьОшибкуПривязки_(err, startParam.rest);
         return "стоп"; // роутер не запускаем — см. комментарий в функции
