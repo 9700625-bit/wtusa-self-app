@@ -89,6 +89,18 @@ h3{font-size:15px;margin:0 0 8px}
   .nav .ico{width:24px;height:24px}
 }
 
+/* ДЛИННЫЕ ССЫЛКИ И СЛОВА ПЕРЕНОСЯТСЯ (05.10.2026). Ссылка на Zoom в «месте» или описании
+   мероприятия, адрес в комментарии координатора к документу — одно «слово» без пробелов:
+   карточка раздвигалась шире экрана, и текст справа обрезался на любом телефоне. */
+.evt-title,.evt-desc,.evt-meta-row,.evt-done,.doc>div:first-child,.pay>div:first-child,.status>div,.profile-row,.detail-row,.road-desc{overflow-wrap:anywhere}
+.evt-head>div:last-child,.doc>div:first-child,.pay>div:first-child,.status>div{min-width:0}
+/* На экране 320 плашка «Нужно предоставить» не помещалась рядом с «Свидетельство о рождении»
+   и вылезала за карточку — на узком экране плашке разрешён перенос на две строки, а название
+   документа чуть мельче, чтобы длинное слово не рвалось посередине. */
+@media (max-width:340px){
+  .doc .tag,.pay .tag{white-space:normal;text-align:center}
+  .doc b{font-size:15px}
+}
 .profile-row{padding:12px 0;border-bottom:1px solid var(--line)}
 .profile-row:last-child{border-bottom:0}
 /* Точка важности в заголовках карточек (вместо эмодзи 🔴🟢, 22.09.2026). */
@@ -113,6 +125,14 @@ details.card summary{outline:none}
 details.card summary::-webkit-details-marker{display:none}
 details.card summary::after{content:"⌄";float:right;color:var(--muted);font-size:16px}
 details.card[open] summary::after{content:"⌃"}
+/* У «Подробнее об этапе» своя стрелка (.detail-chevron) — общую для аккордеонов не рисуем,
+   иначе стрелок две. */
+details.card.detail-card summary::after,details.card.detail-card[open] summary::after{content:none}
+/* Сообщение «Не сохранилось…» у пункта чек-листа — отдельной строкой под пунктом, а не третьей
+   колонкой, которая сжимала название («DS-» / «2019»). */
+label.status{flex-wrap:wrap}
+label.status>div:not(.checklist-err){flex:1 1 0%;min-width:0}
+.checklist-err{flex:0 0 100%;padding-left:28px}
 
 /* Document upload select */
 select#doc-select{width:100%;border:1px solid var(--line);background:#fff}
