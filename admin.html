@@ -3,6 +3,22 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex,nofollow" />
+<script>
+/* ЗАЩИТА ОТ ВСТРАИВАНИЯ В ЧУЖОЙ САЙТ (06.10.2026). GitHub Pages не умеет
+   отдавать заголовок X-Frame-Options, поэтому любую страницу координатора мог
+   показать у себя в рамке посторонний сайт и подставлять под курсор её кнопки.
+   Страница работает только сама по себе либо в рамке нашего же кабинета
+   (admin-panel.html — тот же сайт). В чужой рамке прячем всё и пробуем
+   открыть страницу вместо чужого сайта. */
+(function () {
+  var свой = false;
+  try { свой = window.top === window.self || window.top.location.origin === window.location.origin; } catch (e) { свой = false; }
+  if (свой) return;
+  document.documentElement.style.display = "none";
+  try { window.top.location = window.self.location.href; } catch (e) { /* рамка с sandbox — остаёмся спрятанными */ }
+})();
+</script>
 <title>Привязка участников — ABC Universe</title>
 <link rel="stylesheet" href="css/styles.css" />
 <style>
@@ -330,13 +346,25 @@ async function createLinkFor(dealId, name, неИзСписка) {
     const res = await adminGet("adminCreateLink", { dealId: String(dealId) });
     if (!актуален()) return; // пока ждали, координатор выбрал другую сделку
     resultEl.className = "ok";
+    // НАЗВАНИЕ СДЕЛКИ ОТ СЕРВЕРА (06.10.2026). Для ID, введённого вручную, имени
+    // не было вовсе. Сервер теперь возвращает dealName — название сделки из
+    // amoCRM; показываем его, чтобы координатор видел, кому уйдёт ссылка.
+    const имяОтСервера = String(res.dealName || "").trim();
+    if (!name && имяОтСервера) {
+      name = имяОтСервера;
+      resultTitle.textContent = `Ссылка для: ${name} (сделка #${dealId})`;
+    }
     const waBlock = res.phone
       ? `<button class="btn" id="wa-btn" type="button">Отправить в WhatsApp</button>
          <div class="sub" style="margin:8px 0">Сообщение уйдёт клиенту тем же каналом WhatsApp, что и вся переписка в amoCRM. Или скопируйте ссылку вручную:</div>`
       : `<div class="sub" style="margin-bottom:8px">В amoCRM не нашёлся номер телефона для этой сделки — отправьте ссылку вручную:</div>`;
     const ужеБыло = отметкаОтправки(dealId);
     const заметкаОбОтправке = ужеБыло
-      ? `<div class="sub" style="margin-bottom:8px;color:var(--danger);font-weight:700">По этой сделке ${esc(ужеБыло.полно)}. Повторная отправка — это второе сообщение клиенту.</div>`
+      ? `<div class="sub" style="margin-bottom:8px;color:var(--danger);font-weight:700">По этой сделке ${esc(ужеБыло.полно)}. ${
+          ужеБыло.state === "sent"
+            ? "Повторная отправка — это второе сообщение клиенту."
+            : "Сначала проверьте чат в amoCRM."
+        }</div>`
       : "";
     // СДЕЛКА НЕ ИЗ СПИСКА (05.10.2026). Для ID, введённого вручную, сервер
     // возвращает только ссылку и телефон — имени нет. Если ID не из списка
@@ -375,15 +403,31 @@ async function createLinkFor(dealId, name, неИзСписка) {
         // этом берётся из контакта сделки в amoCRM, а это часто телефон
         // родителя — координатор об этом не догадывался.
         const текст = waMessageText(res.link, name);
-        const кому = (name ? `${name} (сделка #${dealId})` : `сделка #${dealId}`) + (неИзСписка ? " — её НЕТ В СПИСКЕ, имя не проверено: сверьте номер с amoCRM" : "");
+        const кому = (name ? `${name} (сделка #${dealId})` : `сделка #${dealId}`) +
+          (неИзСписка ? (имяОтСервера ? " — её НЕТ В СПИСКЕ непривязанных: сверьте номер с amoCRM" : " — её НЕТ В СПИСКЕ, имя не проверено: сверьте номер с amoCRM") : "");
         const было = отметкаОтправки(dealId);
         if (было && было.state === "sending") {
           alert("Сообщение для «" + кому + "» ещё отправляется — дождитесь ответа сервера (обычно до минуты). Второй раз отправлять не нужно.");
           return;
         }
         const прежняяЗапись = журналОтправок()[String(dealId)] || null;
+        // НОМЕР ЗАПРОСА (06.10.2026). Сервер запоминает успешную отправку по номеру
+        // запроса на 6 часов: повтор с тем же номером ничего не шлёт и возвращает
+        // прежний ответ. Поэтому повтор после «результат неизвестен» идёт с ТЕМ ЖЕ
+        // номером — если первое сообщение дошло, второго не будет. Новая отправка
+        // после подтверждённой — с новым номером (это осознанное второе сообщение).
+        const повторНеизвестной = !!(прежняяЗапись && прежняяЗапись.state !== "sent" && прежняяЗапись.rid &&
+          Date.now() - Number(прежняяЗапись.at || 0) < 6 * 3600 * 1000);
+        const rid = повторНеизвестной
+          ? прежняяЗапись.rid
+          : "wa_" + String(dealId).replace(/[^A-Za-z0-9]/g, "") + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
         const ок = window.confirm(
-          (было ? "ВНИМАНИЕ: по этой сделке " + было.полно + ".\nЕсли продолжить, клиент получит ВТОРОЕ сообщение.\n\n" : "") +
+          (было
+            ? "ВНИМАНИЕ: по этой сделке " + было.полно + ".\n" +
+              (повторНеизвестной
+                ? "Сервер помнит ту отправку: если первое сообщение ушло, второе он не отправит. Но сначала всё же загляните в чат в amoCRM.\n\n"
+                : "Если продолжить, клиент получит ВТОРОЕ сообщение.\n\n")
+            : "") +
           "Отправить сообщение?\n\n" +
           "Кому: " + кому + "\n" +
           "Номер: " + res.phone + "\n\n" +
@@ -394,12 +438,17 @@ async function createLinkFor(dealId, name, неИзСписка) {
         waBtn.disabled = true;
         waBtn.textContent = "Отправляю…";
         идётОтправка.add(String(dealId));
-        записатьОтправку(dealId, "sending");
+        записатьОтправку(dealId, { state: "sending", at: Date.now(), rid });
         обновитьСписок();
         try {
-          await adminPost("adminSendWhatsApp", { phone: res.phone, text: текст });
-          записатьОтправку(dealId, "sent");
+          const ответ = await adminPost("adminSendWhatsApp", { phone: res.phone, text: текст, requestId: rid });
+          записатьОтправку(dealId, { state: "sent", at: Date.now(), rid });
           waBtn.textContent = "Отправлено ✓";
+          // Сервер узнал номер запроса: сообщение ушло ещё с первой попытки,
+          // сейчас ничего не отправлялось.
+          if (ответ && ответ.repeated) {
+            alert("Сообщение для «" + кому + "» было отправлено ещё при первой попытке — сервер это подтвердил. Второе сообщение клиенту НЕ отправлялось.");
+          }
         } catch (err) {
           const m = String((err && err.message) || "");
           // Отказы, при которых сообщение точно не уходило: сервер сам вернул
@@ -407,13 +456,25 @@ async function createLinkFor(dealId, name, неИзСписка) {
           // Всё остальное (обрыв связи, не-JSON, «unknown action», 5xx) значит
           // только одно: ответа нет, а сообщение могло уйти.
           const точноНеУшло = /^(bad secret|phone required|text required)$/.test(m) || /^Wazzup API 4\d\d\b/.test(m) || /no usable phone number/.test(m);
-          if (точноНеУшло) {
+          // Сервер ответил, что запрос с этим номером ещё выполняется: первая
+          // попытка не закончилась. Ничего не отправлено, результат по-прежнему
+          // неизвестен — ждём и смотрим чат.
+          const ещёИдёт = /уже отправляется/.test(m);
+          if (ещёИдёт) {
+            записатьОтправку(dealId, { state: "unknown", at: Date.now(), rid });
+            waBtn.textContent = "Проверьте чат в amoCRM";
+            setTimeout(() => {
+              waBtn.disabled = false;
+              waBtn.textContent = "Отправить ещё раз";
+            }, 60000);
+            alert("Первая отправка для «" + кому + "» ещё выполняется на сервере. Второе сообщение не отправлено. Подождите минуту и проверьте чат с номером " + res.phone + " в amoCRM.");
+          } else if (точноНеУшло) {
             записатьОтправку(dealId, прежняяЗапись);
             waBtn.disabled = false;
             waBtn.textContent = "Отправить в WhatsApp";
             alert("Сообщение для «" + кому + "» НЕ отправлено: " + понятнаяОшибка(err) + ".\n\nСсылку можно скопировать вручную ниже.");
           } else {
-            записатьОтправку(dealId, "unknown");
+            записатьОтправку(dealId, { state: "unknown", at: Date.now(), rid });
             waBtn.textContent = "Проверьте чат в amoCRM";
             setTimeout(() => {
               waBtn.disabled = false;
@@ -422,7 +483,8 @@ async function createLinkFor(dealId, name, неИзСписка) {
             alert(
               "Сервер не подтвердил отправку для «" + кому + "» (" + понятнаяОшибка(err) + ").\n\n" +
               "Сообщение МОГЛО уйти клиенту. Не отправляйте повторно сразу: откройте чат с номером " + res.phone +
-              " в amoCRM и проверьте, пришло ли оно. Если сообщения там нет — через минуту кнопка снова станет активной."
+              " в amoCRM и проверьте, пришло ли оно. Если сообщения там нет — через минуту кнопка снова станет активной. " +
+              "При повторном нажатии сервер сверит номер запроса: если первое сообщение всё-таки ушло, второе он не отправит."
             );
           }
         } finally {

@@ -3,6 +3,22 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex,nofollow" />
+<script>
+/* ЗАЩИТА ОТ ВСТРАИВАНИЯ В ЧУЖОЙ САЙТ (06.10.2026). GitHub Pages не умеет
+   отдавать заголовок X-Frame-Options, поэтому любую страницу координатора мог
+   показать у себя в рамке посторонний сайт и подставлять под курсор её кнопки.
+   Страница работает только сама по себе либо в рамке нашего же кабинета
+   (admin-panel.html — тот же сайт). В чужой рамке прячем всё и пробуем
+   открыть страницу вместо чужого сайта. */
+(function () {
+  var свой = false;
+  try { свой = window.top === window.self || window.top.location.origin === window.location.origin; } catch (e) { свой = false; }
+  if (свой) return;
+  document.documentElement.style.display = "none";
+  try { window.top.location = window.self.location.href; } catch (e) { /* рамка с sandbox — остаёмся спрятанными */ }
+})();
+</script>
   <title>Кабинет координатора — ABC Universe</title>
   <link rel="stylesheet" href="css/styles.css" />
   <style>
@@ -79,7 +95,8 @@
   }
 
   function activate(tab) {
-    if (!SRC[tab]) tab = "link";
+    // Только свои три вкладки: «#constructor» и подобные адреса раньше давали пустой кабинет.
+    if (!Object.prototype.hasOwnProperty.call(SRC, tab)) tab = "link";
     document.querySelectorAll(".panel-tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
     document.querySelectorAll(".frames iframe").forEach((f) => {
       const on = f.dataset.tab === tab;

@@ -3,6 +3,22 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex,nofollow" />
+<script>
+/* ЗАЩИТА ОТ ВСТРАИВАНИЯ В ЧУЖОЙ САЙТ (06.10.2026). GitHub Pages не умеет
+   отдавать заголовок X-Frame-Options, поэтому любую страницу координатора мог
+   показать у себя в рамке посторонний сайт и подставлять под курсор её кнопки.
+   Страница работает только сама по себе либо в рамке нашего же кабинета
+   (admin-panel.html — тот же сайт). В чужой рамке прячем всё и пробуем
+   открыть страницу вместо чужого сайта. */
+(function () {
+  var свой = false;
+  try { свой = window.top === window.self || window.top.location.origin === window.location.origin; } catch (e) { свой = false; }
+  if (свой) return;
+  document.documentElement.style.display = "none";
+  try { window.top.location = window.self.location.href; } catch (e) { /* рамка с sandbox — остаёмся спрятанными */ }
+})();
+</script>
 <title>Пользователи приложения — ABC Universe</title>
 <link rel="stylesheet" href="css/styles.css" />
 <style>
@@ -266,8 +282,10 @@ function renderTable(filterText) {
       const flags = [
         закрыт(u) ? `<span class="badge-stale">сделка закрыта</span>` : "",
         stuck ? `<span class="badge-stuck">на этапе ${onStage} дн.</span>` : "",
-        u.overduePayments ? `<span class="badge-stale">просрочено платежей: ${u.overduePayments}</span>` : "",
-        u.unansweredInvites ? `<span class="badge-wait">без ответа на приглашение: ${u.unansweredInvites}</span>` : "",
+        // Счётчики — только числа (06.10.2026): это были две последние подстановки
+        // в разметку без esc(); сервер шлёт числа, но страница на это не полагается.
+        Number(u.overduePayments) > 0 ? `<span class="badge-stale">просрочено платежей: ${Number(u.overduePayments)}</span>` : "",
+        Number(u.unansweredInvites) > 0 ? `<span class="badge-wait">без ответа на приглашение: ${Number(u.unansweredInvites)}</span>` : "",
       ].filter(Boolean).join("");
       return `
         <tr>

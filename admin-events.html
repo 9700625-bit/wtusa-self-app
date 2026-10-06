@@ -3,6 +3,22 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex,nofollow" />
+<script>
+/* ЗАЩИТА ОТ ВСТРАИВАНИЯ В ЧУЖОЙ САЙТ (06.10.2026). GitHub Pages не умеет
+   отдавать заголовок X-Frame-Options, поэтому любую страницу координатора мог
+   показать у себя в рамке посторонний сайт и подставлять под курсор её кнопки.
+   Страница работает только сама по себе либо в рамке нашего же кабинета
+   (admin-panel.html — тот же сайт). В чужой рамке прячем всё и пробуем
+   открыть страницу вместо чужого сайта. */
+(function () {
+  var свой = false;
+  try { свой = window.top === window.self || window.top.location.origin === window.location.origin; } catch (e) { свой = false; }
+  if (свой) return;
+  document.documentElement.style.display = "none";
+  try { window.top.location = window.self.location.href; } catch (e) { /* рамка с sandbox — остаёмся спрятанными */ }
+})();
+</script>
   <title>Приглашения на мероприятия — ABC Universe</title>
   <link rel="stylesheet" href="css/styles.css" />
   <style>
@@ -153,6 +169,10 @@
       <label style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;color:var(--navy)">Кого пригласить</label>
       <div class="search-box">
         <input id="search-people" placeholder="Поиск по имени…" />
+      </div>
+      <div style="display:flex;gap:8px;margin:0 0 8px">
+        <button type="button" class="btn secondary" id="select-shown" style="width:auto;padding:6px 12px">Отметить всех в списке</button>
+        <button type="button" class="btn secondary" id="select-none" style="width:auto;padding:6px 12px">Снять все отметки</button>
       </div>
       <div class="people-list" id="people-list"></div>
       <div class="selected-count" id="selected-count">Выбрано: 0</div>
@@ -459,6 +479,23 @@ const SECRET_KEY = "wtusa_admin_secret";
       clearTimeout(searchDebounce);
       const value = e.target.value;
       searchDebounce = setTimeout(() => renderPeople(value), 200);
+    });
+
+    // EL-04: 120–180 студентов — не 180 щелчков. Отмечаются те, кто сейчас показан
+    // (с учётом поиска); «Выбрано: N» и подтверждение перед отправкой остаются проверкой.
+    const показанные = () => {
+      const q = document.getElementById("search-people").value.trim().toLowerCase();
+      return q ? people.filter((p) => String(p.name).toLowerCase().includes(q)) : people;
+    };
+    document.getElementById("select-shown").addEventListener("click", () => {
+      показанные().forEach((p) => выбранные.add(String(p.telegramId)));
+      renderPeople(document.getElementById("search-people").value);
+      updateSelectedCount();
+    });
+    document.getElementById("select-none").addEventListener("click", () => {
+      выбранные.clear();
+      renderPeople(document.getElementById("search-people").value);
+      updateSelectedCount();
     });
 
     document.getElementById("submit-btn").addEventListener("click", async () => {
