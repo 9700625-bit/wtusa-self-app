@@ -51,6 +51,8 @@
     #result{margin-top:14px;white-space:pre-line}
     #result.ok{color:var(--ok)}
     #result.err{color:var(--danger)}
+    /* 05.10.2026: у поля поиска не было своего оформления — оно рисовалось узким системным полем. */
+    .search-box input{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:14px;background:#fff}
   
 /* Кнопка выхода: раньше выйти из админки было нельзя вообще — пароль оставался
    в браузере до ручной чистки. Держим её неприметной, но всегда на виду. */
@@ -218,7 +220,14 @@ const SECRET_KEY = "wtusa_admin_secret";
   let slotCount = 0;
 
   function secret() {
-    return sessionStorage.getItem(SECRET_KEY) || "";
+    // 05.10.2026: если в Chrome для сайта запрещены cookie и данные сайтов,
+    // само обращение к sessionStorage бросает исключение — страница молча
+    // переставала работать («Войти» ничего не делала).
+    try {
+      return sessionStorage.getItem(SECRET_KEY) || "";
+    } catch (e) {
+      return "";
+    }
   }
 
   async function adminGet(action, extraParams) {
@@ -239,6 +248,21 @@ const SECRET_KEY = "wtusa_admin_secret";
     const json = await resp.json();
     if (json.error) throw new Error(json.error);
     return json;
+  }
+
+
+  /**
+   * ПОНЯТНЫЙ ТЕКСТ ОШИБКИ (05.10.2026). Координатор видел сырой технический
+   * текст: «bad secret», «Failed to fetch», «Unexpected token '<', "<!DOCTYPE "...
+   * is not valid JSON» (так выглядит страница ошибки Google вместо ответа).
+   */
+  function понятнаяОшибка(err) {
+    const m = String((err && err.message) || err || "");
+    if (/bad secret/i.test(m)) return "неверный секретный код";
+    if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "нет связи с сервером";
+    if (/Unexpected token|not valid JSON|Unexpected end of/i.test(m)) return "сервер ответил не по формату (временный сбой на стороне Google)";
+    if (/^unknown action/i.test(m)) return "сервер не распознал запрос (" + m + ")";
+    return m || "попробуйте ещё раз";
   }
 
   function addSlotRow(prefill) {
@@ -296,7 +320,7 @@ const SECRET_KEY = "wtusa_admin_secret";
   function renderPeople(filterText) {
     const listEl = document.getElementById("people-list");
     const q = (filterText || "").trim().toLowerCase();
-    const filtered = q ? people.filter((p) => p.name.toLowerCase().includes(q)) : people;
+    const filtered = q ? people.filter((p) => String(p.name).toLowerCase().includes(q)) : people;
     listEl.innerHTML = filtered
       .map(
         (p) => `
@@ -374,7 +398,12 @@ const SECRET_KEY = "wtusa_admin_secret";
       entering = true;
       gateSubmit.disabled = true;
       try {
-        sessionStorage.setItem(SECRET_KEY, value);
+        try {
+          sessionStorage.setItem(SECRET_KEY, value);
+        } catch (e) {
+          alert("Браузер не даёт сохранить код входа: в настройках Chrome для этого сайта запрещены cookie и данные сайтов. Разрешите их и обновите страницу.");
+          return;
+        }
         await loadMain();
       } finally {
         entering = false;
@@ -398,8 +427,20 @@ const SECRET_KEY = "wtusa_admin_secret";
     try {
       people = await adminGet("adminListParticipants");
     } catch (err) {
-      sessionStorage.removeItem(SECRET_KEY);
-      alert("Не удалось войти: " + (err.message || "проверьте код"));
+      // КОД СТИРАЕМ ТОЛЬКО ЕСЛИ ОН НЕВЕРНЫЙ (05.10.2026). Раньше любой сбой первой
+      // загрузки (нет связи, страница ошибки Google) выглядел как «Не удалось
+      // войти» и стирал код. В кабинете (admin-panel.html) код общий для трёх
+      // вкладок: сбой в одной разлогинивал остальные — там следующее действие
+      // отвечало «bad secret».
+      const неверныйКод = /bad secret/i.test(String((err && err.message) || ""));
+      if (неверныйКод) {
+        try { sessionStorage.removeItem(SECRET_KEY); } catch (e) {}
+        alert("Не удалось войти: неверный секретный код.");
+        // Внутри кабинета возвращаем к общему экрану входа, а не к своему.
+        if (window.parent !== window) { try { window.parent.location.reload(); } catch (e) {} }
+      } else {
+        alert("Не удалось загрузить данные: " + понятнаяОшибка(err) + ".\n\nКод входа сохранён — обновите страницу через минуту.");
+      }
       return;
     }
 
@@ -429,7 +470,51 @@ const SECRET_KEY = "wtusa_admin_secret";
       const location = document.getElementById("f-location").value.trim();
       const roadmapStageId = document.getElementById("f-roadmap-stage").value;
       const briefingKey = document.getElementById("f-briefing-key").value;
-      const slots = collectSlots();
+      // ПРОВЕРКА ДО ОТПРАВКИ (05.10.2026). Раньше форма уходила как есть:
+      // слот без времени, отрицательное «мест» (сервер считает такой слот
+      // заполненным — записаться не может никто), строка, где время указали,
+      // а дату забыли (молча выбрасывалась). В подтверждении было только
+      // «Слотов: N» — ни дат, ни времени. Исправить разосланное нельзя:
+      // повторная отправка с тем же названием всех пропускает как уже
+      // приглашённых.
+      const строкиСлотов = Array.from(document.querySelectorAll(".slot-row"))
+        .map((row) => ({
+          date: row.querySelector(".slot-date").value,
+          time: row.querySelector(".slot-time").value,
+          capacity: row.querySelector(".slot-capacity").value.trim(),
+          мусорВМестах: row.querySelector(".slot-capacity").validity.badInput,
+        }))
+        .filter((s) => s.date || s.time || s.capacity || s.мусорВМестах);
+      const ошибки = [];
+      if (!title) ошибки.push("Укажите название мероприятия.");
+      if (!строкиСлотов.length) ошибки.push("Укажите дату и время мероприятия.");
+      const виделиСлот = new Set();
+      строкиСлотов.forEach((s, i) => {
+        const где = строкиСлотов.length > 1 ? "Время № " + (i + 1) + ": " : "";
+        if (!s.date) ошибки.push(где + "не указана дата.");
+        if (!s.time) ошибки.push(где + "не указано время.");
+        if (s.мусорВМестах || (s.capacity && !/^[1-9]\d*$/.test(s.capacity))) ошибки.push(где + "«Мест» — целое число от 1, либо оставьте пустым.");
+        if (s.date && s.time) {
+          if (виделиСлот.has(s.date + " " + s.time)) ошибки.push(где + "такие же дата и время уже есть выше.");
+          виделиСлот.add(s.date + " " + s.time);
+        }
+      });
+      if (!выбранные.size) ошибки.push("Выберите хотя бы одного студента.");
+      if (ошибки.length) {
+        resultEl.className = "err";
+        resultEl.textContent = ошибки.join("\n");
+        return;
+      }
+      const slots = строкиСлотов.map((s) => ({ date: s.date, time: s.time, capacity: s.capacity }));
+      const д = new Date();
+      const сегодня = д.getFullYear() + "-" + String(д.getMonth() + 1).padStart(2, "0") + "-" + String(д.getDate()).padStart(2, "0");
+      const списокСлотов = slots
+        .map((s) => {
+          const [г, м, ч] = s.date.split("-").map(Number);
+          const дата = new Date(г, м - 1, ч).toLocaleDateString("ru-RU", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
+          return "  • " + дата + ", " + s.time + (s.capacity ? " (мест: " + s.capacity + ")" : "") + (s.date < сегодня ? "  ← ЭТА ДАТА УЖЕ ПРОШЛА" : "");
+        })
+        .join("\n");
       // Берём выбор из набора, а не из DOM: отфильтрованные поиском строки
       // в DOM отсутствуют, и раньше они молча выпадали из рассылки.
       const telegramIds = Array.from(выбранные);
@@ -448,7 +533,7 @@ const SECRET_KEY = "wtusa_admin_secret";
       const подтверждено = window.confirm(
         "Разослать приглашения?\n\n" +
         "Мероприятие: " + title + "\n" +
-        "Слотов: " + slots.length + "\n" +
+        "Когда (" + slots.length + "):\n" + списокСлотов + "\n" +
         "Получателей: " + telegramIds.length + "\n" +
         (списокКому ? "Кому: " + списокКому + "\n" : "") +
         "\nКаждый получит сообщение в Telegram. Отменить рассылку после нажатия будет нельзя."
@@ -457,10 +542,33 @@ const SECRET_KEY = "wtusa_admin_secret";
 
       const btn = document.getElementById("submit-btn");
       btn.disabled = true;
+      // 05.10.2026: запрос идёт до минуты (первые сообщения отправляются
+      // прямо в нём), а на экране не менялось ничего, кроме серой кнопки.
+      btn.textContent = "Отправляю приглашения…";
+      resultEl.textContent = "Отправляю приглашения — это может занять до минуты. Не закрывайте и не обновляйте страницу.";
       try {
         const res = await adminPost("adminCreateEvent", { title, description, location, slots, telegramIds, roadmapStageId, briefingKey });
-        const skippedNote = res.skipped && res.skipped.length
-          ? `\nПропущено (уже были приглашены на «${title}» ранее): ${res.skipped.length}.`
+        // ЧТО НА САМОМ ДЕЛЕ ПРОИЗОШЛО (05.10.2026). Прежний текст при повторной
+        // отправке говорил «приглашения добавлены в существующее», даже когда
+        // не добавлено ни одного; поле addedSlots не читалось вовсе; а когда
+        // все выбранные уже были приглашены (например, то же название на
+        // другую дату), страница показывала зелёное «Готово — отправлено: 0».
+        const sent = Number(res.sent) || 0;
+        const queued = Number(res.queued) || 0;
+        const addedSlots = Number(res.addedSlots) || 0;
+        const failures = Array.isArray(res.failures) ? res.failures : [];
+        const skippedCount = Array.isArray(res.skipped) ? res.skipped.length : 0;
+        const имяПоId = (id) => {
+          const p = people.find((x) => String(x.telegramId) === String(id));
+          return p ? p.name : "Telegram ID " + id;
+        };
+        const причина = (e) =>
+          /blocked by the user/i.test(e) ? "студент заблокировал бота"
+          : /chat not found/i.test(e) ? "студент ещё не открывал бота (чат не найден)"
+          : /Too Many Requests|retry after/i.test(e) ? "Telegram временно ограничил отправку — дошлётся автоматически"
+          : e;
+        const skippedNote = skippedCount
+          ? `\nПропущено (уже были приглашены на «${title}» ранее): ${skippedCount}.`
           : "";
         // 05.10.2026: большое мероприятие сервер рассылает частями. sent —
         // сколько ушло сразу, queued — сколько досылается автоматически.
@@ -468,21 +576,38 @@ const SECRET_KEY = "wtusa_admin_secret";
           ? `\nЕщё ${res.queued} отправляются автоматически в течение нескольких минут — повторно нажимать «Создать» не нужно.`
           : "";
         const reusedNote = res.reused
-          ? `\nМероприятие с таким названием и датой уже есть — новое не создано, приглашения добавлены в существующее.`
+          ? `\nМероприятие с таким названием и датой уже есть — новое не создано.` +
+            (addedSlots > 0
+              ? ` В него добавлено новых вариантов времени: ${addedSlots}. Уже приглашённым студентам сообщение об этом НЕ отправляется — новое время они увидят в приложении.`
+              : "")
           : "";
-        if (res.failures && res.failures.length) {
+        const никомуNote = !res.reused && sent + queued === 0 && !failures.length && skippedCount
+          ? `\nВсе выбранные студенты уже были приглашены на это мероприятие раньше (то же название или тот же тип брифинга), поэтому новое приглашение им не создано и новую дату они НЕ увидят. Чтобы добавить новое время к уже разосланному мероприятию, отправьте форму с тем же названием, указав и прежнюю дату, и новую.`
+          : "";
+        if (failures.length) {
           resultEl.className = "err";
-          const lines = res.failures.map((f) => `${f.telegramId}: ${f.error}`).join("\n");
-          resultEl.textContent = `Отправлено: ${res.sent}. Не удалось отправить в Telegram (${res.failures.length}):\n${lines}${queuedNote}${reusedNote}${skippedNote}`;
-        } else {
+          const lines = failures.map((f) => `${имяПоId(f.telegramId)}: ${причина(String(f.error || ""))}`).join("\n");
+          resultEl.textContent = `Отправлено: ${sent}. Не удалось отправить в Telegram (${failures.length}):\n${lines}${queuedNote}${reusedNote}${skippedNote}`;
+        } else if (sent + queued > 0) {
           resultEl.className = "ok";
-          resultEl.textContent = `Готово — отправлено приглашений: ${res.sent}.${queuedNote}${reusedNote}${skippedNote}`;
+          resultEl.textContent = `Готово — отправлено приглашений: ${sent}.${queuedNote}${reusedNote}${skippedNote}`;
+        } else {
+          resultEl.className = "";
+          resultEl.textContent = `Новых приглашений не отправлено.${reusedNote}${skippedNote}${никомуNote}`;
         }
       } catch (err) {
         resultEl.className = "err";
-        resultEl.textContent = "Ошибка: " + (err.message || "попробуйте ещё раз");
+        const m = String((err && err.message) || "");
+        // Сбой связи/формата — запрос мог выполниться на сервере. Повтор
+        // безопасен: сервер не создаёт второе мероприятие с тем же названием
+        // и датой и пропускает уже приглашённых.
+        const ответаНет = /Failed to fetch|NetworkError|Load failed|Unexpected token|not valid JSON|Unexpected end of|^unknown action/i.test(m);
+        resultEl.textContent = "Ошибка: " + понятнаяОшибка(err) + (ответаНет
+          ? ".\nСервер мог успеть создать мероприятие и разослать часть приглашений. Отправьте форму ещё раз, ничего в ней не меняя: второе мероприятие не создастся, уже приглашённые будут пропущены."
+          : "");
       } finally {
         btn.disabled = false;
+        btn.textContent = "Отправить приглашения";
       }
     });
   }
@@ -499,12 +624,21 @@ const SECRET_KEY = "wtusa_admin_secret";
    */
   let attendanceGroups = null; // кеш ответа adminListInvitations
   let attendanceLoading = false;
+  // Строки, по которым отметка ещё сохраняется: "groupId|telegramId". Раньше
+  // ответ по ОДНОЙ строке перерисовывал весь список и снова включал кнопки в
+  // строках, чьи запросы ещё не вернулись, — по одному студенту уходили две
+  // отметки сразу, и на экране могло остаться не то, что записалось.
+  const идётОтметка = new Set();
 
   function switchTab(name) {
     document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
     document.getElementById("tab-create").style.display = name === "create" ? "" : "none";
     document.getElementById("tab-attendance").style.display = name === "attendance" ? "" : "none";
-    if (name === "attendance" && attendanceGroups === null && !attendanceLoading) loadAttendance();
+    // 05.10.2026: список читался один раз за жизнь страницы — только что
+    // созданное мероприятие в нём не появлялось, «приглашение ещё не
+    // отправлено» не исчезало после досылки, отметки второго координатора не
+    // были видны. Теперь перечитываем при каждом открытии вкладки.
+    if (name === "attendance" && !attendanceLoading) loadAttendance(attendanceGroups !== null);
   }
 
   async function loadAttendance(keepSelection) {
@@ -512,11 +646,14 @@ const SECRET_KEY = "wtusa_admin_secret";
     const selectEl = document.getElementById("att-event");
     const prev = keepSelection ? selectEl.value : "";
     attendanceLoading = true;
-    if (!keepSelection) listEl.innerHTML = `<div class="sub" style="padding:12px">Загружаем…</div>`;
+    // Пока список перечитывается, прежние строки убираем: отметка, нажатая в эти секунды,
+    // сохранилась бы на сервере, а пришедший следом ответ (прочитанный до неё) показал бы
+    // строку неотмеченной.
+    listEl.innerHTML = `<div class="sub" style="padding:12px">Загружаем…</div>`;
     try {
       attendanceGroups = await adminGet("adminListInvitations");
     } catch (err) {
-      listEl.innerHTML = `<div class="sub" style="padding:12px;color:var(--danger)">Не удалось загрузить: ${esc(err.message || "ошибка")}</div>`;
+      listEl.innerHTML = `<div class="sub" style="padding:12px;color:var(--danger)">Не удалось загрузить: ${esc(понятнаяОшибка(err))}</div>`;
       attendanceLoading = false;
       return;
     }
@@ -551,9 +688,9 @@ const SECRET_KEY = "wtusa_admin_secret";
               : i.notified === "" ? " · <b>приглашение ещё не отправлено</b>" : ""}</div>
           </div>
           <div class="att-seg">
-            <button type="button" data-att="yes" class="${i.attended === "yes" ? "on-yes" : ""}">Был</button>
-            <button type="button" data-att="no" class="${i.attended === "no" ? "on-no" : ""}">Не был</button>
-            <button type="button" data-att="" title="Снять отметку">—</button>
+            <button type="button" data-att="yes" class="${i.attended === "yes" ? "on-yes" : ""}"${идётОтметка.has(groupId + "|" + i.telegramId) ? " disabled" : ""}>Был</button>
+            <button type="button" data-att="no" class="${i.attended === "no" ? "on-no" : ""}"${идётОтметка.has(groupId + "|" + i.telegramId) ? " disabled" : ""}>Не был</button>
+            <button type="button" data-att="" title="Снять отметку"${идётОтметка.has(groupId + "|" + i.telegramId) ? " disabled" : ""}>—</button>
           </div>
         </div>`).join("")
       : `<div class="sub" style="padding:12px">На это мероприятие никто не приглашён.</div>`;
@@ -570,16 +707,21 @@ const SECRET_KEY = "wtusa_admin_secret";
     const attended = btn.dataset.att;
     // Не даём нажать второй раз, пока сервер не ответил, — иначе две
     // отметки уйдут вразнобой и на экране останется не то, что записалось.
+    const ключ = groupId + "|" + telegramId;
+    if (идётОтметка.has(ключ)) return;
+    идётОтметка.add(ключ);
     row.querySelectorAll("button").forEach((b) => (b.disabled = true));
     try {
       await adminPost("adminSetAttendance", { telegramId, groupId, attended });
-      const group = attendanceGroups.find((g) => g.groupId === groupId);
+      const group = (attendanceGroups || []).find((g) => g.groupId === groupId);
       const inv = group && group.invitees.find((i) => i.telegramId === telegramId);
       if (inv) inv.attended = attended;
-      renderAttendance();
     } catch (err) {
-      row.querySelectorAll("button").forEach((b) => (b.disabled = false));
-      alert("Не сохранилось: " + (err.message || "попробуйте ещё раз"));
+      const имя = row.querySelector(".att-name") ? row.querySelector(".att-name").textContent : "";
+      alert("Отметка" + (имя ? " для «" + имя + "»" : "") + " не сохранилась: " + понятнаяОшибка(err) + ". Проверьте строку и нажмите ещё раз.");
+    } finally {
+      идётОтметка.delete(ключ);
+      renderAttendance();
     }
   });
 
@@ -590,9 +732,14 @@ const SECRET_KEY = "wtusa_admin_secret";
   // сделок, результаты), чтобы после выхода на экране не осталось чужих данных.
   const logoutBtn = document.getElementById("logout-btn");
   if (logoutBtn) {
+    // ВНУТРИ КАБИНЕТА ВЫХОД — ОБЩИЙ (05.10.2026). Страница во фрейме
+    // admin-panel.html перезагружала только себя: соседние вкладки оставались
+    // открытыми со списками студентов, а на экране было две кнопки «Выйти».
+    const вКабинете = window.parent !== window;
+    if (вКабинете) logoutBtn.style.display = "none";
     logoutBtn.addEventListener("click", () => {
-      sessionStorage.removeItem(SECRET_KEY);
-      location.reload();
+      try { sessionStorage.removeItem(SECRET_KEY); } catch (e) {}
+      try { (вКабинете ? window.parent : window).location.reload(); } catch (e) { location.reload(); }
     });
   }
 </script>

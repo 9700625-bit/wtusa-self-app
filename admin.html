@@ -21,6 +21,8 @@
 .deal-row:last-child{border-bottom:0}
 .deal-row:hover{background:rgba(15,35,68,.03)}
 .deal-id{margin-left:auto;font-size:11px;color:var(--muted)}
+.deal-sent{font-size:11px;font-weight:700;color:var(--ok);white-space:nowrap}
+.deal-sent.warn{color:var(--danger)}
 #gate{max-width:340px;margin:80px auto;padding:0 16px}
 #result{margin-top:14px}
 #result.ok{color:var(--ok)}
@@ -28,6 +30,8 @@
 .link-box{display:flex;gap:8px;margin-top:8px}
 .link-box input{flex:1;font-size:13px}
 #wa-btn{text-decoration:none;background:#25d366}
+/* 05.10.2026: у поля поиска не было своего оформления — оно рисовалось узким системным полем. */
+.search-box input{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:14px;background:#fff}
 
 /* Кнопка выхода: раньше выйти из админки было нельзя вообще — пароль оставался
    в браузере до ручной чистки. Держим её неприметной, но всегда на виду. */
@@ -139,7 +143,14 @@ const mainEl = document.getElementById("main");
 let deals = []; // { dealId, name }
 
 function secret() {
-  return sessionStorage.getItem(SECRET_KEY) || "";
+  // 05.10.2026: если в Chrome для сайта запрещены cookie и данные сайтов,
+  // само обращение к sessionStorage бросает исключение — страница молча
+  // переставала работать («Войти» ничего не делала).
+  try {
+    return sessionStorage.getItem(SECRET_KEY) || "";
+  } catch (e) {
+    return "";
+  }
 }
 
 async function adminGet(action, extraParams) {
@@ -162,22 +173,103 @@ async function adminPost(action, payload) {
   return json;
 }
 
+/**
+ * ПОНЯТНЫЙ ТЕКСТ ОШИБКИ (05.10.2026). Координатор видел сырой технический
+ * текст: «bad secret», «Failed to fetch», «Unexpected token '<', "<!DOCTYPE "...
+ * is not valid JSON» (так выглядит страница ошибки Google вместо ответа).
+ */
+function понятнаяОшибка(err) {
+  const m = String((err && err.message) || err || "");
+  if (/bad secret/i.test(m)) return "неверный секретный код";
+  if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "нет связи с сервером";
+  if (/Unexpected token|not valid JSON|Unexpected end of/i.test(m)) return "сервер ответил не по формату (временный сбой на стороне Google)";
+  if (/^unknown action/i.test(m)) return "сервер не распознал запрос (" + m + ")";
+  return m || "попробуйте ещё раз";
+}
+
+/**
+ * ЖУРНАЛ ОТПРАВОК В WHATSAPP (05.10.2026).
+ *
+ * Что ломалось. 05.10 в 20:57 сообщение ушло клиенту, а страница через 30
+ * секунд показала «Не удалось отправить… unknown action» и тут же снова
+ * включила кнопку — приглашая отправить второй раз. То же при любом сбое
+ * ПОСЛЕ того, как запрос ушёл на сервер (обрыв связи, страница ошибки Google
+ * вместо ответа): сервер сообщение отправил, а ответ до страницы не дошёл.
+ * Кроме того, страница нигде не помнила, что по сделке уже отправлено:
+ * повторный клик по той же сделке (в том числе пока первая отправка ещё
+ * идёт, или после F5) давал чистую карточку и то же самое подтверждение.
+ *
+ * Теперь: по каждой сделке запоминается состояние отправки (в sessionStorage,
+ * переживает F5): «отправляется» → «отправлено» либо «результат неизвестен».
+ * Оно видно в списке, в карточке и в окне подтверждения. После сбоя с
+ * неизвестным результатом кнопка минуту недоступна, а текст говорит главное:
+ * сообщение могло уйти — проверьте чат в amoCRM.
+ */
+const JOURNAL_KEY = "wtusa_admin_wa_journal";
+const идётОтправка = new Set(); // сделки, запрос по которым ещё не вернулся (в этой загрузке страницы)
+
+function журналОтправок() {
+  try {
+    return JSON.parse(sessionStorage.getItem(JOURNAL_KEY) || "{}") || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+// запись: "sending" | "sent" | "unknown" | готовый объект из журнала | null (стереть)
+function записатьОтправку(dealId, запись) {
+  const j = журналОтправок();
+  if (!запись) delete j[String(dealId)];
+  else j[String(dealId)] = typeof запись === "string" ? { state: запись, at: Date.now() } : запись;
+  try {
+    sessionStorage.setItem(JOURNAL_KEY, JSON.stringify(j));
+  } catch (e) {
+    // журнал — подстраховка, а не условие работы страницы
+  }
+}
+
+function отметкаОтправки(dealId) {
+  const з = журналОтправок()[String(dealId)];
+  if (!з) return null;
+  const когда = new Date(з.at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  if (з.state === "sent") return { state: "sent", коротко: "✓ отправлено " + когда, полно: "сообщение уже отправлено (" + когда + ")" };
+  // «Отправляется» верим, только пока запрос жив в этой загрузке страницы;
+  // после F5 это уже «результат неизвестен».
+  if (з.state === "sending" && идётОтправка.has(String(dealId))) return { state: "sending", коротко: "отправляется…", полно: "сообщение отправляется прямо сейчас" };
+  return { state: "unknown", коротко: "? отправка " + когда + " — проверьте чат", полно: "сообщение отправлялось (" + когда + "), результат неизвестен — оно могло дойти" };
+}
+
+function обновитьСписок() {
+  renderDeals(document.getElementById("search-deals").value);
+}
+
 function renderDeals(filterText) {
   const listEl = document.getElementById("deal-list");
   const q = (filterText || "").trim().toLowerCase();
-  const filtered = q ? deals.filter((d) => d.name.toLowerCase().includes(q) || d.dealId.includes(q)) : deals;
+  const filtered = q ? deals.filter((d) => String(d.name).toLowerCase().includes(q) || String(d.dealId).includes(q)) : deals;
   listEl.innerHTML =
     filtered
       .map(
         (d) => `
       <div class="deal-row" data-deal-id="${esc(d.dealId)}" data-deal-name="${esc(d.name)}">
         <span>${esc(d.name)}</span>
+        ${((м) => (м ? `<span class="deal-sent${м.state === "sent" ? "" : " warn"}">${esc(м.коротко)}</span>` : ""))(отметкаОтправки(d.dealId))}
         <span class="deal-id">#${esc(d.dealId)}</span>
       </div>`
       )
       .join("") || `<div class="sub" style="padding:12px">Непривязанных сделок не найдено.</div>`;
   listEl.querySelectorAll(".deal-row").forEach((row) => {
-    row.addEventListener("click", () => createLinkFor(row.dataset.dealId, row.dataset.dealName));
+    row.addEventListener("click", (e) => {
+      // ДВОЙНОЙ ЩЕЛЧОК ВЫБИРАЛ ДРУГУЮ СДЕЛКУ (05.10.2026). Первый щелчок
+      // показывает карточку результата и плавно прокручивает страницу к ней —
+      // список уезжает под курсором, и второй щелчок двойного клика попадал
+      // уже в соседнюю строку: запрашивалась и показывалась ссылка другого
+      // студента (плюс лишний токен в LinkTokens). Второй щелчок двойного
+      // клика (detail = 2) пропускаем; прокрутка к карточке теперь стартует
+      // с задержкой — см. createLinkFor.
+      if (e.detail > 1) return;
+      createLinkFor(row.dataset.dealId, row.dataset.dealName);
+    });
   });
 }
 
@@ -188,7 +280,7 @@ async function loadDeals() {
     deals = await adminGet("adminListUnlinkedDeals");
     renderDeals(document.getElementById("search-deals").value);
   } catch (err) {
-    listEl.innerHTML = `<div class="sub" style="padding:12px;color:var(--danger)">Не удалось загрузить список: ${esc(err.message)}</div>`;
+    listEl.innerHTML = `<div class="sub" style="padding:12px;color:var(--danger)">Не удалось загрузить список: ${esc(понятнаяОшибка(err))}</div>`;
   }
 }
 
@@ -222,17 +314,18 @@ function waMessageText(link, name) {
 // только если он всё ещё самый свежий.
 let номерЗапроса = 0;
 
-async function createLinkFor(dealId, name) {
+async function createLinkFor(dealId, name, неИзСписка) {
   const мой = ++номерЗапроса;
   const актуален = () => мой === номерЗапроса;
   const resultCard = document.getElementById("result-card");
   const resultTitle = document.getElementById("result-title");
   const resultEl = document.getElementById("result");
   resultCard.style.display = "block";
-  resultTitle.textContent = name ? `Ссылка для: ${name}` : "Ссылка";
+  resultTitle.textContent = name ? `Ссылка для: ${name}` : `Ссылка для сделки #${dealId}`;
   resultEl.className = "";
   resultEl.textContent = "Генерирую…";
-  resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  // Не сразу: пусть двойной щелчок закончится, пока список ещё на месте.
+  setTimeout(() => resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" }), 600);
   try {
     const res = await adminGet("adminCreateLink", { dealId: String(dealId) });
     if (!актуален()) return; // пока ждали, координатор выбрал другую сделку
@@ -241,7 +334,21 @@ async function createLinkFor(dealId, name) {
       ? `<button class="btn" id="wa-btn" type="button">Отправить в WhatsApp</button>
          <div class="sub" style="margin:8px 0">Сообщение уйдёт клиенту тем же каналом WhatsApp, что и вся переписка в amoCRM. Или скопируйте ссылку вручную:</div>`
       : `<div class="sub" style="margin-bottom:8px">В amoCRM не нашёлся номер телефона для этой сделки — отправьте ссылку вручную:</div>`;
+    const ужеБыло = отметкаОтправки(dealId);
+    const заметкаОбОтправке = ужеБыло
+      ? `<div class="sub" style="margin-bottom:8px;color:var(--danger);font-weight:700">По этой сделке ${esc(ужеБыло.полно)}. Повторная отправка — это второе сообщение клиенту.</div>`
+      : "";
+    // СДЕЛКА НЕ ИЗ СПИСКА (05.10.2026). Для ID, введённого вручную, сервер
+    // возвращает только ссылку и телефон — имени нет. Если ID не из списка
+    // выше (опечатка, ID из другой вкладки amoCRM, сделка другой воронки, уже
+    // подключённая сделка), страница показывала обычную карточку с кнопкой
+    // отправки, и единственной подсказкой оставался номер телефона.
+    const заметкаОСделке = неИзСписка
+      ? `<div class="sub" style="margin-bottom:8px;color:var(--danger);font-weight:700">Сделки #${esc(dealId)} нет в списке непривязанных выше: она совсем новая, уже подключена к приложению, закрыта или это сделка другого клиента. Перед отправкой сверьте номер телефона с карточкой этой сделки в amoCRM.</div>`
+      : "";
     resultEl.innerHTML = `
+      ${заметкаОСделке}
+      ${заметкаОбОтправке}
       ${waBlock}
       <div class="link-box">
         <input type="text" readonly value="${esc(res.link)}" id="link-output" />
@@ -268,8 +375,15 @@ async function createLinkFor(dealId, name) {
         // этом берётся из контакта сделки в amoCRM, а это часто телефон
         // родителя — координатор об этом не догадывался.
         const текст = waMessageText(res.link, name);
-        const кому = name ? `${name} (сделка #${dealId})` : `сделка #${dealId}`;
+        const кому = (name ? `${name} (сделка #${dealId})` : `сделка #${dealId}`) + (неИзСписка ? " — её НЕТ В СПИСКЕ, имя не проверено: сверьте номер с amoCRM" : "");
+        const было = отметкаОтправки(dealId);
+        if (было && было.state === "sending") {
+          alert("Сообщение для «" + кому + "» ещё отправляется — дождитесь ответа сервера (обычно до минуты). Второй раз отправлять не нужно.");
+          return;
+        }
+        const прежняяЗапись = журналОтправок()[String(dealId)] || null;
         const ок = window.confirm(
+          (было ? "ВНИМАНИЕ: по этой сделке " + было.полно + ".\nЕсли продолжить, клиент получит ВТОРОЕ сообщение.\n\n" : "") +
           "Отправить сообщение?\n\n" +
           "Кому: " + кому + "\n" +
           "Номер: " + res.phone + "\n\n" +
@@ -279,20 +393,48 @@ async function createLinkFor(dealId, name) {
         if (!ок) return;
         waBtn.disabled = true;
         waBtn.textContent = "Отправляю…";
+        идётОтправка.add(String(dealId));
+        записатьОтправку(dealId, "sending");
+        обновитьСписок();
         try {
           await adminPost("adminSendWhatsApp", { phone: res.phone, text: текст });
+          записатьОтправку(dealId, "sent");
           waBtn.textContent = "Отправлено ✓";
         } catch (err) {
-          waBtn.disabled = false;
-          waBtn.textContent = "Отправить в WhatsApp";
-          alert("Не удалось отправить через WhatsApp: " + (err.message || "попробуйте ещё раз") + "\n\nСсылку можно скопировать вручную ниже.");
+          const m = String((err && err.message) || "");
+          // Отказы, при которых сообщение точно не уходило: сервер сам вернул
+          // { error } до обращения к Wazzup либо Wazzup отклонил запрос (4xx).
+          // Всё остальное (обрыв связи, не-JSON, «unknown action», 5xx) значит
+          // только одно: ответа нет, а сообщение могло уйти.
+          const точноНеУшло = /^(bad secret|phone required|text required)$/.test(m) || /^Wazzup API 4\d\d\b/.test(m) || /no usable phone number/.test(m);
+          if (точноНеУшло) {
+            записатьОтправку(dealId, прежняяЗапись);
+            waBtn.disabled = false;
+            waBtn.textContent = "Отправить в WhatsApp";
+            alert("Сообщение для «" + кому + "» НЕ отправлено: " + понятнаяОшибка(err) + ".\n\nСсылку можно скопировать вручную ниже.");
+          } else {
+            записатьОтправку(dealId, "unknown");
+            waBtn.textContent = "Проверьте чат в amoCRM";
+            setTimeout(() => {
+              waBtn.disabled = false;
+              waBtn.textContent = "Отправить ещё раз";
+            }, 60000);
+            alert(
+              "Сервер не подтвердил отправку для «" + кому + "» (" + понятнаяОшибка(err) + ").\n\n" +
+              "Сообщение МОГЛО уйти клиенту. Не отправляйте повторно сразу: откройте чат с номером " + res.phone +
+              " в amoCRM и проверьте, пришло ли оно. Если сообщения там нет — через минуту кнопка снова станет активной."
+            );
+          }
+        } finally {
+          идётОтправка.delete(String(dealId));
+          обновитьСписок();
         }
       });
     }
   } catch (err) {
     if (!актуален()) return;
     resultEl.className = "err";
-    resultEl.textContent = "Ошибка: " + (err.message || "попробуйте ещё раз");
+    resultEl.textContent = "Ошибка: " + понятнаяОшибка(err);
   }
 }
 
@@ -310,7 +452,12 @@ async function init() {
     entering = true;
     gateSubmit.disabled = true;
     try {
-      sessionStorage.setItem(SECRET_KEY, value);
+      try {
+        sessionStorage.setItem(SECRET_KEY, value);
+      } catch (e) {
+        alert("Браузер не даёт сохранить код входа: в настройках Chrome для этого сайта запрещены cookie и данные сайтов. Разрешите их и обновите страницу.");
+        return;
+      }
       await loadMain();
     } finally {
       entering = false;
@@ -336,8 +483,20 @@ async function loadMain() {
   try {
     deals = await adminGet("adminListUnlinkedDeals");
   } catch (err) {
-    sessionStorage.removeItem(SECRET_KEY);
-    alert("Не удалось войти: " + (err.message || "проверьте код"));
+    // КОД СТИРАЕМ ТОЛЬКО ЕСЛИ ОН НЕВЕРНЫЙ (05.10.2026). Раньше любой сбой первой
+    // загрузки (нет связи, страница ошибки Google) выглядел как «Не удалось
+    // войти» и стирал код. В кабинете (admin-panel.html) код общий для трёх
+    // вкладок: сбой в одной разлогинивал остальные — там следующее действие
+    // отвечало «bad secret».
+    const неверныйКод = /bad secret/i.test(String((err && err.message) || ""));
+    if (неверныйКод) {
+      try { sessionStorage.removeItem(SECRET_KEY); } catch (e) {}
+      alert("Не удалось войти: неверный секретный код.");
+      // Внутри кабинета возвращаем к общему экрану входа, а не к своему.
+      if (window.parent !== window) { try { window.parent.location.reload(); } catch (e) {} }
+    } else {
+      alert("Не удалось загрузить данные: " + понятнаяОшибка(err) + ".\n\nКод входа сохранён — обновите страницу через минуту.");
+    }
     return;
   }
 
@@ -370,6 +529,10 @@ async function loadMain() {
     // чтобы мусор не уходил в сеть и ошибка была видна сразу. ID сделки в
     // amoCRM всегда состоит только из цифр.
     if (!/^\d+$/.test(id)) {
+      // 05.10.2026: это тоже «новый выбор» — иначе ответ на более ранний
+      // запрос (клик по сделке секунду назад) приходил позже и затирал это
+      // сообщение карточкой с активной кнопкой «Отправить в WhatsApp».
+      ++номерЗапроса;
       const resultCard = document.getElementById("result-card");
       const resultEl = document.getElementById("result");
       resultCard.style.display = "block";
@@ -380,7 +543,8 @@ async function loadMain() {
       resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
       return;
     }
-    createLinkFor(id, null);
+    const изСписка = deals.find((d) => d.dealId === id);
+    createLinkFor(id, изСписка ? изСписка.name : null, !изСписка);
   });
 }
 
@@ -391,9 +555,14 @@ init();
   // сделок, результаты), чтобы после выхода на экране не осталось чужих данных.
   const logoutBtn = document.getElementById("logout-btn");
   if (logoutBtn) {
+    // ВНУТРИ КАБИНЕТА ВЫХОД — ОБЩИЙ (05.10.2026). Страница во фрейме
+    // admin-panel.html перезагружала только себя: соседние вкладки оставались
+    // открытыми со списками студентов, а на экране было две кнопки «Выйти».
+    const вКабинете = window.parent !== window;
+    if (вКабинете) logoutBtn.style.display = "none";
     logoutBtn.addEventListener("click", () => {
-      sessionStorage.removeItem(SECRET_KEY);
-      location.reload();
+      try { sessionStorage.removeItem(SECRET_KEY); } catch (e) {}
+      try { (вКабинете ? window.parent : window).location.reload(); } catch (e) { location.reload(); }
     });
   }
 </script>

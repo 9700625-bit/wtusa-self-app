@@ -91,7 +91,7 @@
 
   document.querySelectorAll(".panel-tab").forEach((b) => b.addEventListener("click", () => activate(b.dataset.tab)));
   document.getElementById("logout-btn").addEventListener("click", () => {
-    sessionStorage.removeItem(SECRET_KEY);
+    try { sessionStorage.removeItem(SECRET_KEY); } catch (e) {}
     location.reload();
   });
 
@@ -99,13 +99,22 @@
   function tryEnter() {
     const value = input.value.trim();
     if (!value) return;
-    sessionStorage.setItem(SECRET_KEY, value);
+    // 05.10.2026: при запрещённых в Chrome cookie/данных сайта обращение к
+    // sessionStorage бросает исключение — «Войти» молча не делала ничего.
+    try {
+      sessionStorage.setItem(SECRET_KEY, value);
+    } catch (e) {
+      alert("Браузер не даёт сохранить код входа: в настройках Chrome для этого сайта запрещены cookie и данные сайтов. Разрешите их и обновите страницу.");
+      return;
+    }
     showMain(); // проверка кода — на первой же загрузке вкладки: при ошибке она сама покажет «Не удалось войти»
   }
   document.getElementById("gate-submit").addEventListener("click", tryEnter);
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") tryEnter(); });
 
-  if (sessionStorage.getItem(SECRET_KEY)) showMain();
+  let естьКод = false;
+  try { естьКод = !!sessionStorage.getItem(SECRET_KEY); } catch (e) {}
+  if (естьКод) showMain();
 </script>
 </body>
 </html>

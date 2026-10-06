@@ -81,6 +81,23 @@
   <main class="content" id="screen-root" aria-live="polite"></main>
   <nav class="bottom" id="bottom-nav"></nav>
 </div>
-<script type="module" src="js/app.js"></script>
+<!--
+  ПУСТАЯ СТРАНИЦА БЕЗ ЕДИНОГО СЛОВА (05.10.2026). Приложение — это два десятка
+  файлов; если хотя бы один не скачался (обрыв связи при открытии), не запускается
+  ничего: ни экран, ни меню, ни сообщение об ошибке — их все рисует app.js.
+  Студент видел пустую страницу и не знал, что делать. Этот маленький блок от
+  остальных файлов не зависит: при ошибке загрузки показывает объяснение и кнопку.
+-->
+<script>
+  function __appLoadFailed() {
+    var root = document.getElementById("screen-root");
+    if (!root || root.innerHTML.trim() !== "") return;
+    root.innerHTML =
+      '<div class="card"><h2>Не удалось загрузить приложение</h2>' +
+      '<div class="sub">Похоже, интернет пропал. Проверьте соединение и нажмите «Обновить».</div>' +
+      '<button class="btn btn-primary" style="margin-top:14px" onclick="location.reload()">Обновить</button></div>';
+  }
+</script>
+<script type="module" src="js/app.js" onerror="__appLoadFailed()"></script>
 </body>
 </html>

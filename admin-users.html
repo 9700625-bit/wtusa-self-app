@@ -137,7 +137,14 @@ const STALE_DAYS = 14; // no activity for this long -> flagged for the coordinat
 let users = []; // adminListAllParticipants_ shape
 
 function secret() {
-  return sessionStorage.getItem(SECRET_KEY) || "";
+  // 05.10.2026: если в Chrome для сайта запрещены cookie и данные сайтов,
+  // само обращение к sessionStorage бросает исключение — страница молча
+  // переставала работать («Войти» ничего не делала).
+  try {
+    return sessionStorage.getItem(SECRET_KEY) || "";
+  } catch (e) {
+    return "";
+  }
 }
 
 async function adminGet(action, extraParams) {
@@ -148,10 +155,42 @@ async function adminGet(action, extraParams) {
   return json;
 }
 
+/**
+ * ПОНЯТНЫЙ ТЕКСТ ОШИБКИ (05.10.2026). Координатор видел сырой технический
+ * текст: «bad secret», «Failed to fetch», «Unexpected token '<', "<!DOCTYPE "...
+ * is not valid JSON» (так выглядит страница ошибки Google вместо ответа).
+ */
+function понятнаяОшибка(err) {
+  const m = String((err && err.message) || err || "");
+  if (/bad secret/i.test(m)) return "неверный секретный код";
+  if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "нет связи с сервером";
+  if (/Unexpected token|not valid JSON|Unexpected end of/i.test(m)) return "сервер ответил не по формату (временный сбой на стороне Google)";
+  if (/^unknown action/i.test(m)) return "сервер не распознал запрос (" + m + ")";
+  return m || "попробуйте ещё раз";
+}
+
 function daysSince(iso) {
   if (!iso) return Infinity;
   return (Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24);
 }
+
+/**
+ * ДНИ НА ЭТАПЕ (05.10.2026). stageSince приходит как календарная дата Алматы
+ * «2026-10-06». new Date("2026-10-06") — это полночь по UTC, то есть 05:00 в
+ * Алматы: с полуночи до пяти утра у этапа, сменившегося сегодня, получалось
+ * «-1 дн.». Считаем от полуночи Алматы и не уходим ниже нуля.
+ */
+function daysOnStage(ymd) {
+  if (!ymd) return -1;
+  const t = new Date(String(ymd).slice(0, 10) + "T00:00:00+05:00").getTime();
+  if (isNaN(t)) return -1;
+  return Math.max(0, (Date.now() - t) / (1000 * 60 * 60 * 24));
+}
+
+// Сделка закрыта / ушла из воронки. Поле active появится в ответе после правки
+// бэкенда (adminListAllParticipants_: active: p.active === "no" ? "no" : "");
+// пока его нет, страница ведёт себя как раньше.
+const закрыт = (u) => u.active === "no";
 
 function formatDate(iso) {
   if (!iso) return "—";
@@ -171,10 +210,12 @@ function formatRelative(iso) {
 const STUCK_DAYS = 14;
 let currentFilter = "all"; // all | stuck | overdue | stale
 function applyFilter_(list) {
-  const stuckDays = (u) => (u.stageSince ? daysSince(u.stageSince) : -1);
+  // Закрытые сделки не «застряли»: они стоят на этапе навсегда и занимали
+  // верх этого списка.
+  const stuckDays = (u) => (закрыт(u) ? -1 : daysOnStage(u.stageSince));
   if (currentFilter === "stuck") return list.filter((u) => stuckDays(u) >= STUCK_DAYS).sort((a, b) => stuckDays(b) - stuckDays(a));
   if (currentFilter === "overdue") return list.filter((u) => u.overduePayments > 0).sort((a, b) => b.overduePayments - a.overduePayments);
-  if (currentFilter === "stale") return list.filter((u) => daysSince(u.lastActivity) > STALE_DAYS);
+  if (currentFilter === "stale") return list.filter((u) => !закрыт(u) && daysSince(u.lastActivity) > STALE_DAYS);
   return list;
 }
 function renderFilters() {
@@ -185,8 +226,8 @@ function renderFilters() {
 function renderStats(list) {
   const total = list.length;
   const activeWeek = list.filter((u) => daysSince(u.lastActivity) <= 7).length;
-  const stale = list.filter((u) => daysSince(u.lastActivity) > STALE_DAYS).length;
-  const stuck = list.filter((u) => u.stageSince && daysSince(u.stageSince) >= STUCK_DAYS).length;
+  const stale = list.filter((u) => !закрыт(u) && daysSince(u.lastActivity) > STALE_DAYS).length;
+  const stuck = list.filter((u) => !закрыт(u) && daysOnStage(u.stageSince) >= STUCK_DAYS).length;
   document.getElementById("stats-row").innerHTML = `
     <div class="stat-tile"><div class="num">${stuck}</div><div class="label">На этапе ${STUCK_DAYS}+ дней</div></div>
     <div class="stat-tile"><div class="num">${total}</div><div class="label">Всего подключено</div></div>
@@ -197,10 +238,15 @@ function renderStats(list) {
 function renderTable(filterText) {
   const wrap = document.getElementById("table-wrap");
   const q = (filterText || "").trim().toLowerCase();
-  const filtered = q ? users.filter((u) => u.name.toLowerCase().includes(q)) : users;
+  const filtered = q ? users.filter((u) => String(u.name).toLowerCase().includes(q)) : users;
 
+  // 05.10.2026: при пустом результате поиска кнопки фильтров исчезали, и
+  // было не видно, какой фильтр включён.
+  const подключитьФильтры = () =>
+    wrap.querySelectorAll("[data-filter]").forEach((b) => b.addEventListener("click", () => { currentFilter = b.dataset.filter; renderTable(filterText); }));
   if (!filtered.length) {
-    wrap.innerHTML = `<div class="sub" style="padding:12px">Никого не найдено.</div>`;
+    wrap.innerHTML = `${renderFilters()}<div class="sub" style="padding:12px">Никого не найдено.</div>`;
+    подключитьФильтры();
     return;
   }
 
@@ -211,12 +257,14 @@ function renderTable(filterText) {
   const stuckList = applyFilter_(filtered);
   const rows = stuckList
     .map((u) => {
-      const stale = daysSince(u.lastActivity) > STALE_DAYS;
-      const onStage = u.stageSince ? Math.floor(daysSince(u.stageSince)) : null;
-      const stuck = onStage !== null && onStage >= STUCK_DAYS;
+      const stale = !закрыт(u) && daysSince(u.lastActivity) > STALE_DAYS;
+      const днейНаЭтапе = daysOnStage(u.stageSince); // -1 — даты нет или она не разобралась
+      const onStage = днейНаЭтапе >= 0 ? Math.floor(днейНаЭтапе) : null;
+      const stuck = !закрыт(u) && onStage !== null && onStage >= STUCK_DAYS;
       const stageLabel = STAGE_TITLE.get(u.stage) || u.stage || "—";
       const programLine = [u.program, u.season].filter(Boolean).join(" · ") || "—";
       const flags = [
+        закрыт(u) ? `<span class="badge-stale">сделка закрыта</span>` : "",
         stuck ? `<span class="badge-stuck">на этапе ${onStage} дн.</span>` : "",
         u.overduePayments ? `<span class="badge-stale">просрочено платежей: ${u.overduePayments}</span>` : "",
         u.unansweredInvites ? `<span class="badge-wait">без ответа на приглашение: ${u.unansweredInvites}</span>` : "",
@@ -239,7 +287,7 @@ function renderTable(filterText) {
       <tbody>${rows || `<tr><td colspan="4" class="muted" style="padding:14px">По этому фильтру никого.</td></tr>`}</tbody>
     </table>
     </div>`;
-  wrap.querySelectorAll("[data-filter]").forEach((b) => b.addEventListener("click", () => { currentFilter = b.dataset.filter; renderTable(filterText); }));
+  подключитьФильтры();
 }
 
 async function loadUsers() {
@@ -250,7 +298,7 @@ async function loadUsers() {
     renderStats(users);
     renderTable(document.getElementById("search-users").value);
   } catch (err) {
-    wrap.innerHTML = `<div class="sub" style="padding:12px;color:var(--danger)">Не удалось загрузить список: ${esc(err.message)}</div>`;
+    wrap.innerHTML = `<div class="sub" style="padding:12px;color:var(--danger)">Не удалось загрузить список: ${esc(понятнаяОшибка(err))}</div>`;
   }
 }
 
@@ -268,7 +316,12 @@ async function init() {
     entering = true;
     gateSubmit.disabled = true;
     try {
-      sessionStorage.setItem(SECRET_KEY, value);
+      try {
+        sessionStorage.setItem(SECRET_KEY, value);
+      } catch (e) {
+        alert("Браузер не даёт сохранить код входа: в настройках Chrome для этого сайта запрещены cookie и данные сайтов. Разрешите их и обновите страницу.");
+        return;
+      }
       await loadMain();
     } finally {
       entering = false;
@@ -294,8 +347,20 @@ async function loadMain() {
   try {
     users = await adminGet("adminListAllParticipants");
   } catch (err) {
-    sessionStorage.removeItem(SECRET_KEY);
-    alert("Не удалось войти: " + (err.message || "проверьте код"));
+    // КОД СТИРАЕМ ТОЛЬКО ЕСЛИ ОН НЕВЕРНЫЙ (05.10.2026). Раньше любой сбой первой
+    // загрузки (нет связи, страница ошибки Google) выглядел как «Не удалось
+    // войти» и стирал код. В кабинете (admin-panel.html) код общий для трёх
+    // вкладок: сбой в одной разлогинивал остальные — там следующее действие
+    // отвечало «bad secret».
+    const неверныйКод = /bad secret/i.test(String((err && err.message) || ""));
+    if (неверныйКод) {
+      try { sessionStorage.removeItem(SECRET_KEY); } catch (e) {}
+      alert("Не удалось войти: неверный секретный код.");
+      // Внутри кабинета возвращаем к общему экрану входа, а не к своему.
+      if (window.parent !== window) { try { window.parent.location.reload(); } catch (e) {} }
+    } else {
+      alert("Не удалось загрузить данные: " + понятнаяОшибка(err) + ".\n\nКод входа сохранён — обновите страницу через минуту.");
+    }
     return;
   }
 
@@ -322,9 +387,14 @@ init();
   // сделок, результаты), чтобы после выхода на экране не осталось чужих данных.
   const logoutBtn = document.getElementById("logout-btn");
   if (logoutBtn) {
+    // ВНУТРИ КАБИНЕТА ВЫХОД — ОБЩИЙ (05.10.2026). Страница во фрейме
+    // admin-panel.html перезагружала только себя: соседние вкладки оставались
+    // открытыми со списками студентов, а на экране было две кнопки «Выйти».
+    const вКабинете = window.parent !== window;
+    if (вКабинете) logoutBtn.style.display = "none";
     logoutBtn.addEventListener("click", () => {
-      sessionStorage.removeItem(SECRET_KEY);
-      location.reload();
+      try { sessionStorage.removeItem(SECRET_KEY); } catch (e) {}
+      try { (вКабинете ? window.parent : window).location.reload(); } catch (e) { location.reload(); }
     });
   }
 </script>
