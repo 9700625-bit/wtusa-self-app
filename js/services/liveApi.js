@@ -128,8 +128,27 @@ function diskSave_(data) {
     } catch (e) { /* нет места или запрещено — просто не сохраняем */ }
 }
 function diskClear_() {
-    try { const k = diskKey_(); if (k) localStorage.removeItem(k); } catch (e) { /* ignore */ }
+    // 06.10.2026: вместе с состоянием стираем и сохранённые мероприятия (ключ …_ev) — раньше
+    // после отзыва доступа они оставались на устройстве.
+    try { const k = diskKey_(); if (k) { localStorage.removeItem(k); localStorage.removeItem(k + "_ev"); } } catch (e) { /* ignore */ }
 }
+// УСТАРЕВШИЕ КОПИИ УДАЛЯЕМ, А НЕ ТОЛЬКО НЕ ПОКАЗЫВАЕМ (06.10.2026). Копия старше 7 дней не
+// показывалась, но оставалась в памяти браузера навсегда — с ФИО, платежами и комментариями
+// координатора; на общем компьютере (Telegram Web / Desktop) в том числе копии других
+// аккаунтов. При каждом запуске убираем все наши записи, у которых срок вышел или дата не читается.
+(function () {
+    try {
+        const stale = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (!k || k.indexOf(DISK_KEY_PREFIX_) !== 0) continue;
+            let at = 0;
+            try { at = Number((JSON.parse(localStorage.getItem(k)) || {}).at) || 0; } catch (e) { at = 0; }
+            if (!at || Date.now() - at > DISK_MAX_AGE_MS_) stale.push(k);
+        }
+        stale.forEach((k) => localStorage.removeItem(k));
+    } catch (e) { /* хранилище недоступно */ }
+})();
 let fromDisk_ = false;
 (function () {
     const saved = diskLoad_();
@@ -302,12 +321,16 @@ export async function getPreDepartureChecklist() {
     return state.preDepartureChecklist;
 }
 
-export async function toggleChecklistItem(itemId) {
+export async function toggleChecklistItem(itemId, done) {
     // Бэкенд (toggleChecklistItem_ в Api.gs) возвращает ВЕСЬ обновлённый
     // чек-лист — этого достаточно, чтобы поправить кеш на месте. Раньше
     // ответ игнорировался и состояние выбрасывалось целиком, из-за чего
     // экран после каждой галочки заново тянул все восемь листов.
-    const checklist = await apiPost("toggleChecklist", { itemId });
+    // ЯВНОЕ СОСТОЯНИЕ (06.10.2026). Раньше сервер получал только «переключи»: запрос,
+    // повторённый после обрыва связи, снимал только что поставленную галочку. Теперь
+    // передаём, какой галочка должна стать, — повтор ничего не меняет. Без done
+    // (старый вызов) сервер переключает как раньше.
+    const checklist = await apiPost("toggleChecklist", typeof done === "boolean" ? { itemId, done } : { itemId });
     // ИЗ ОТВЕТА БЕРЁМ ТОЛЬКО СВОЙ ПУНКТ (05.10.2026). Бэкенд отвечает списком, каким он его
     // ПРОЧИТАЛ в начале запроса, плюс свой переключённый пункт (toggleChecklistItem_, замка нет).
     // Студент отмечает пункты подряд — запросы идут одновременно, и в ответе на второй ещё нет

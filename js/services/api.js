@@ -74,8 +74,8 @@ export async function confirmJobOffer() {
 export async function getPreDepartureChecklist() {
     return (await backend_()).getPreDepartureChecklist();
 }
-export async function toggleChecklistItem(itemId) {
-    return (await backend_()).toggleChecklistItem(itemId);
+export async function toggleChecklistItem(itemId, done) {
+    return (await backend_()).toggleChecklistItem(itemId, done);
 }
 export async function getVisaInfo() {
     return (await backend_()).getVisaInfo();

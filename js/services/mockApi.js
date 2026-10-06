@@ -111,9 +111,9 @@ export function getPreDepartureChecklist() {
     return delay(clone(db.preDepartureChecklist));
 }
 
-export function toggleChecklistItem(itemId) {
+export function toggleChecklistItem(itemId, done) {
     const item = db.preDepartureChecklist.find((i) => i.id === itemId);
-    if (item) item.done = !item.done;
+    if (item) item.done = typeof done === "boolean" ? done : !item.done;
     return delay(clone(db.preDepartureChecklist));
 }
 
