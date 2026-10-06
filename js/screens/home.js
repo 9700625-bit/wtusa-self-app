@@ -17,7 +17,7 @@ function nearestEventFrom_(events) {
       // Время не разобралось (нестандартная запись) — как раньше, судим по одной дате.
       const d = new Date(s.date + "T00:00:00");
       if (isNaN(d)) return;
-      const end = new Date(s.date + "T" + (s.time || "23:59") + ":00").getTime();
+      const end = new Date(s.date + "T" + (s.time || "23:59") + ":00+05:00").getTime(); // время мероприятия — по Астане
       if (isNaN(end) ? d < today : end + 60 * 60 * 1000 < Date.now()) return;
       const key = s.date + (s.time || "");
       if (!best || key < best.key) best = { key, title: ev.title, date: s.date, time: s.time || "", groupId: ev.groupId, booked: !!chosen };

@@ -124,7 +124,9 @@ function isPastEvent(ev) {
   const now = Date.now();
   return ev.slots.every((s) => {
     if (!s.date) return false;
-    const end = new Date(s.date + "T" + (s.time || "23:59") + ":00").getTime();
+    // +05:00 (06.10.2026): время мероприятия задано по Астане. Без смещения телефон в другом
+    // часовом поясе считал встречу прошедшей (или ещё не прошедшей) на несколько часов раньше.
+    const end = new Date(s.date + "T" + (s.time || "23:59") + ":00+05:00").getTime();
     // Час запаса: встреча в 17:00 не должна «исчезать» ровно в 17:00.
     return !isNaN(end) && end + 60 * 60 * 1000 < now;
   });
@@ -140,7 +142,7 @@ function isPastEvent(ev) {
  */
 function slotPassed_(s) {
   if (!s.date) return false;
-  const end = new Date(s.date + "T" + (s.time || "23:59") + ":00").getTime();
+  const end = new Date(s.date + "T" + (s.time || "23:59") + ":00+05:00").getTime(); // по Астане, см. isPastEvent
   return !isNaN(end) && end + 60 * 60 * 1000 < Date.now();
 }
 function withoutPassedSlots_(ev) {
@@ -289,14 +291,44 @@ export async function render(container, params = []) {
   }
 }
 
+/**
+ * ОТВЕТ НА ПРИГЛАШЕНИЕ В ПУТИ (06.10.2026). На холодном сервере запрос идёт до 25 секунд, и всё
+ * это время студент видел только посеревшую кнопку. Ушёл на другую вкладку и вернулся — кнопка
+ * снова активна: второй такой же запрос и второе примечание в сделке. «Не приду» оставалась
+ * нажимаемой, пока шла запись. Теперь: пока ответ по приглашению в пути, второй не отправляется,
+ * все кнопки карточки заблокированы, на нажатой — «Записываем…» / «Сохраняем…».
+ */
+const ответВПути_ = new Set();
+function начатьОтвет_(groupId, btnEl, подпись) {
+  if (ответВПути_.has(String(groupId))) return null;
+  ответВПути_.add(String(groupId));
+  const карточка = (btnEl.closest && btnEl.closest(".evt-card")) || null;
+  const заблокированы = карточка ? Array.from(карточка.querySelectorAll("button")).filter((b) => !b.disabled) : [btnEl];
+  заблокированы.forEach((b) => { b.disabled = true; });
+  const прежняя = btnEl.textContent;
+  btnEl.textContent = подпись;
+  return () => {
+    ответВПути_.delete(String(groupId));
+    заблокированы.forEach((b) => { b.disabled = false; });
+    btnEl.textContent = прежняя;
+  };
+}
+/** Ответ сервера не пришёл (обрыв, тайм-аут): запись могла состояться — список надо перечитать. */
+function исходНеизвестен_(err) {
+  return /^(TIMEOUT|OFFLINE|BACKEND_HTML)$/.test(String((err && err.message) || ""));
+}
+
 async function doConfirm(container, groupId, chosenEventId, btnEl) {
   if (!chosenEventId) return;
-  btnEl.disabled = true;
+  const вернуть = начатьОтвет_(groupId, btnEl, "Записываем…");
+  if (!вернуть) return;
   try {
     await api.respondEvent(groupId, "confirm", chosenEventId);
-    перерисовать_(container, btnEl);
+    ответВПути_.delete(String(groupId));
+    перерисовать_(container, btnEl, вернуть);
   } catch (err) {
-    btnEl.disabled = false;
+    вернуть();
+    if (исходНеизвестен_(err)) перерисовать_(container, btnEl);
     // Через штатное окно Telegram, а не голый window.alert: системное окно
     // браузера внутри Mini App выглядит чужеродно. И не показываем сырой
     // err.message — там технический текст с бэкенда (02.09.2026).
@@ -306,12 +338,15 @@ async function doConfirm(container, groupId, chosenEventId, btnEl) {
 }
 
 async function doDecline(container, groupId, btnEl) {
-  btnEl.disabled = true;
+  const вернуть = начатьОтвет_(groupId, btnEl, "Сохраняем…");
+  if (!вернуть) return;
   try {
     await api.respondEvent(groupId, "decline");
-    перерисовать_(container, btnEl);
+    ответВПути_.delete(String(groupId));
+    перерисовать_(container, btnEl, вернуть);
   } catch (err) {
-    btnEl.disabled = false;
+    вернуть();
+    if (исходНеизвестен_(err)) перерисовать_(container, btnEl);
     showAlert(понятнаяОшибка_(err, "Не удалось сохранить ответ, попробуйте ещё раз."));
     if (списокУстарел_(err)) перерисовать_(container, btnEl);
   }
@@ -328,11 +363,12 @@ function списокУстарел_(err) {
  *  странице: пока шёл запрос, студент мог уйти на другую вкладку — раньше список
  *  мероприятий рисовался поверх неё (05.10.2026). Если перечитать не удалось
  *  (пропала связь) — возвращаем кнопку, иначе она оставалась серой навсегда. */
-function перерисовать_(container, btnEl) {
+function перерисовать_(container, btnEl, приСбое) {
   if (container.isConnected === false) return;
   render(container).catch((err) => {
     console.warn("[events] не удалось обновить список:", err);
     if (btnEl) btnEl.disabled = false;
+    if (приСбое) приСбое(); // вернуть карточке кнопки и подпись, заблокированные на время запроса
   });
 }
 
