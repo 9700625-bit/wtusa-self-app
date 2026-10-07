@@ -168,7 +168,7 @@
 
       <label style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;color:var(--navy)">Кого пригласить</label>
       <div class="search-box">
-        <input id="search-people" placeholder="Поиск по имени…" />
+        <input id="search-people" placeholder="Поиск по имени или этапу…" />
       </div>
       <div style="display:flex;gap:8px;margin:0 0 8px">
         <button type="button" class="btn secondary" id="select-shown" style="width:auto;padding:6px 12px">Отметить всех в списке</button>
@@ -337,17 +337,23 @@ const SECRET_KEY = "wtusa_admin_secret";
   const выбранные = new Set();
 
 
+  // ПОИСК И ПО ЭТАПУ (07.10.2026). Приглашать приходится по этапам («сначала проверка анкеты»), а поиск
+  // искал только по имени: 37 человек отмечались по одному. Теперь строка поиска смотрит и на этап —
+  // по-русски («анкет», «регистрация») и по коду (CIEE_ANKETA_REVIEW); рядом с именем — русское название.
+  const названиеЭтапа_ = (id) => { const s = STAGES.find((x) => x.id === id); return s ? (s.shortTitle || s.title || id) : (id || ""); };
+  const подходит_ = (p, q) => (String(p.name) + " " + названиеЭтапа_(p.stage) + " " + String(p.stage || "")).toLowerCase().includes(q);
+
   function renderPeople(filterText) {
     const listEl = document.getElementById("people-list");
     const q = (filterText || "").trim().toLowerCase();
-    const filtered = q ? people.filter((p) => String(p.name).toLowerCase().includes(q)) : people;
+    const filtered = q ? people.filter((p) => подходит_(p, q)) : people;
     listEl.innerHTML = filtered
       .map(
         (p) => `
         <label class="person-row">
           <input type="checkbox" class="person-check" value="${esc(p.telegramId)}"${выбранные.has(String(p.telegramId)) ? " checked" : ""} />
           <span>${esc(p.name)}</span>
-          <span class="person-stage">${esc(p.stage)}</span>
+          <span class="person-stage">${esc(названиеЭтапа_(p.stage))}</span>
         </label>`
       )
       .join("") || `<div class="sub" style="padding:12px">Никого не найдено.</div>`;
@@ -485,7 +491,7 @@ const SECRET_KEY = "wtusa_admin_secret";
     // (с учётом поиска); «Выбрано: N» и подтверждение перед отправкой остаются проверкой.
     const показанные = () => {
       const q = document.getElementById("search-people").value.trim().toLowerCase();
-      return q ? people.filter((p) => String(p.name).toLowerCase().includes(q)) : people;
+      return q ? people.filter((p) => подходит_(p, q)) : people;
     };
     document.getElementById("select-shown").addEventListener("click", () => {
       показанные().forEach((p) => выбранные.add(String(p.telegramId)));
