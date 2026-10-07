@@ -89,13 +89,27 @@
   остальных файлов не зависит: при ошибке загрузки показывает объяснение и кнопку.
 -->
 <script>
+  /* «ОБНОВИТЬ» СКАЧИВАЕТ ФАЙЛЫ ЗАНОВО (07.10.2026). Простая перезагрузка страницы берёт файлы приложения
+     из памяти телефона, пока им меньше 10 минут: кнопка «Обновить» в это время ничего не меняла, и та же
+     карточка появлялась снова. Теперь сначала скачиваем файлы мимо памяти телефона (это обновляет и её),
+     потом перезагружаем страницу. Нет связи или прошло 8 секунд — перезагружаем как раньше. */
+  function __appRefresh(btn) {
+    if (btn) btn.disabled = true;
+    var done = false;
+    var reload = function () { if (done) return; done = true; location.reload(); };
+    try {
+      var urls = ["js/app.js"].concat([].map.call(document.querySelectorAll('link[rel="modulepreload"]'), function (l) { return l.getAttribute("href"); }));
+      Promise.all(urls.map(function (u) { return fetch(u, { cache: "reload" }).then(function (r) { return r.text(); }).catch(function () {}); })).then(reload, reload);
+      setTimeout(reload, 8000);
+    } catch (e) { reload(); }
+  }
   function __appLoadFailed() {
     var root = document.getElementById("screen-root");
     if (!root || root.innerHTML.trim() !== "") return;
     root.innerHTML =
       '<div class="card"><h2>Не удалось загрузить приложение</h2>' +
       '<div class="sub">Похоже, интернет пропал. Проверьте соединение и нажмите «Обновить».</div>' +
-      '<button class="btn btn-primary" style="margin-top:14px" onclick="location.reload()">Обновить</button></div>';
+      '<button class="btn btn-primary" style="margin-top:14px" onclick="__appRefresh(this)">Обновить</button></div>';
   }
 </script>
 <script type="module" src="js/app.js" onerror="__appLoadFailed()"></script>
@@ -105,15 +119,18 @@
      запускает НИ ОДНОГО модуля и onerror у тега выше не вызывает: студент видел пустую страницу
      без слов и кнопок. Событие load наступает после попытки запуска: при обычном старте на
      экране к этому моменту уже есть «Подключаем ваш профиль» или индикатор загрузки. Пусто —
-     значит, приложение не стартовало. */
-  window.addEventListener("load", function () {
+     значит, приложение не стартовало.
+     07.10.2026: отсчёт идёт от DOMContentLoaded, а не от load. Модули приложения к этому событию уже
+     выполнены (или не смогли), а load ждёт ещё и шрифт с чужого сервера: если тот зависал, пустой
+     экран держался не 1,5 секунды, а пока не кончится запрос шрифта. */
+  document.addEventListener("DOMContentLoaded", function () {
     setTimeout(function () {
       var root = document.getElementById("screen-root");
       if (!root || root.innerHTML.trim() !== "") return;
       root.innerHTML =
         '<div class="card"><h2>Приложение обновляется</h2>' +
         '<div class="sub">Мы только что выпустили новую версию, и телефон ещё не скачал её целиком. Нажмите «Обновить». Если не помогло — закройте приложение и откройте его снова через несколько минут.</div>' +
-        '<button class="btn btn-primary" style="margin-top:14px" onclick="location.reload()">Обновить</button></div>';
+        '<button class="btn btn-primary" style="margin-top:14px" onclick="__appRefresh(this)">Обновить</button></div>';
     }, 1500);
   });
 </script>
