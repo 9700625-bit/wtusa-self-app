@@ -178,6 +178,16 @@ function splitRosterAndExtra_(events) {
 export async function render(container, params = []) {
   const events = (await api.getEvents()).map(withoutPassedSlots_);
   cardState.clear();
+  // ВЫБОР СТУДЕНТА ПОСЛЕ ОБРЫВА (07.10.2026). Ответ сервера не пришёл — список перечитан. Если сервер
+  // ответ НЕ записал (статус приглашения прежний), возвращаем карточке выбранные день и время:
+  // студенту остаётся нажать кнопку ещё раз, а не выбирать всё заново.
+  if (выборПослеОбрыва_) {
+    const { groupId, status, chosenEventId, state } = выборПослеОбрыва_;
+    выборПослеОбрыва_ = null;
+    const свежее = events.find((x) => x.groupId === groupId);
+    if (свежее && state && свежее.status === status && (свежее.chosenEventId || "") === (chosenEventId || "") &&
+        (!state.selectedSlotId || свежее.slots.some((s) => s.id === state.selectedSlotId))) cardState.set(groupId, state);
+  }
 
   if (!events.length && !BRIEFING_ROSTER.length) {
     container.innerHTML = `
@@ -260,9 +270,9 @@ export async function render(container, params = []) {
       state.view = hasChoice ? "calendar" : "single";
       rerenderCard(cardEl, ev);
     } else if (confirmBtn) {
-      doConfirm(container, groupId, state.selectedSlotId, confirmBtn);
+      doConfirm(container, groupId, state.selectedSlotId, confirmBtn, ev);
     } else if (declineBtn) {
-      doDecline(container, groupId, declineBtn);
+      doDecline(container, groupId, declineBtn, ev);
     }
   });
 
@@ -273,6 +283,8 @@ export async function render(container, params = []) {
   // which card the student was actually sent about, a coordinator's "check
   // this one" link just dumped them into an undifferentiated list. Scroll to
   // and briefly highlight that one card instead.
+  заблокироватьОтветыВПути_(container);
+
   const targetGroupId = params[0];
   if (targetGroupId) {
     const targetCard = container.querySelector(`.evt-card[data-group="${CSS.escape(targetGroupId)}"]`);
@@ -298,57 +310,82 @@ export async function render(container, params = []) {
  * нажимаемой, пока шла запись. Теперь: пока ответ по приглашению в пути, второй не отправляется,
  * все кнопки карточки заблокированы, на нажатой — «Записываем…» / «Сохраняем…».
  */
-const ответВПути_ = new Set();
+const ответВПути_ = new Map(); // id приглашения → { confirm: true|false, подпись }
+let выборПослеОбрыва_ = null;   // { groupId, status, chosenEventId, state } — см. render
 function начатьОтвет_(groupId, btnEl, подпись) {
   if (ответВПути_.has(String(groupId))) return null;
-  ответВПути_.add(String(groupId));
+  const ответ = { confirm: !!(btnEl.hasAttribute && btnEl.hasAttribute("data-do-confirm")), подпись, копии: [] };
+  ответВПути_.set(String(groupId), ответ);
   const карточка = (btnEl.closest && btnEl.closest(".evt-card")) || null;
   const заблокированы = карточка ? Array.from(карточка.querySelectorAll("button")).filter((b) => !b.disabled) : [btnEl];
   заблокированы.forEach((b) => { b.disabled = true; });
   const прежняя = btnEl.textContent;
   btnEl.textContent = подпись;
   return () => {
-    ответВПути_.delete(String(groupId));
+    if (ответВПути_.get(String(groupId)) === ответ) ответВПути_.delete(String(groupId)); // не снимаем чужую, более новую блокировку
     заблокированы.forEach((b) => { b.disabled = false; });
     btnEl.textContent = прежняя;
+    // Карточку за время запроса могли нарисовать заново и заблокировать ещё раз (см. ниже) — снимаем и эти
+    // блокировки, иначе после «Система сейчас занята» на экране навсегда оставалось «Записываем…».
+    ответ.копии.forEach((снять) => снять());
+    ответ.копии = [];
   };
 }
+/**
+ * СПИСОК ПЕРЕРИСОВАН, ПОКА ОТВЕТ В ПУТИ (07.10.2026). Студент ушёл на другую вкладку и вернулся (или
+ * пришло фоновое обновление) — список рисуется заново, и кнопки на нём выглядели живыми, но молча не
+ * нажимались: ответ по этому приглашению ещё идёт. Теперь такая карточка рисуется сразу заблокированной,
+ * с той же подписью «Записываем…» / «Сохраняем…» на нажатой кнопке.
+ */
+function заблокироватьОтветыВПути_(container) {
+  ответВПути_.forEach((ответ, gid) => {
+    const карточка = container.querySelector(`.evt-card[data-group="${CSS.escape(gid)}"]`);
+    if (!карточка) return;
+    const кнопки = Array.from(карточка.querySelectorAll("button")).filter((b) => !b.disabled);
+    кнопки.forEach((b) => { b.disabled = true; });
+    const нажатая = карточка.querySelector(ответ.confirm ? "[data-do-confirm]" : "[data-do-decline]");
+    const прежняя = нажатая ? нажатая.textContent : "";
+    if (нажатая) нажатая.textContent = ответ.подпись;
+    ответ.копии.push(() => { кнопки.forEach((b) => { b.disabled = false; }); if (нажатая) нажатая.textContent = прежняя; });
+  });
+}
+
 /** Ответ сервера не пришёл (обрыв, тайм-аут): запись могла состояться — список надо перечитать. */
 function исходНеизвестен_(err) {
   return /^(TIMEOUT|OFFLINE|BACKEND_HTML)$/.test(String((err && err.message) || ""));
 }
 
-async function doConfirm(container, groupId, chosenEventId, btnEl) {
+async function doConfirm(container, groupId, chosenEventId, btnEl, ev) {
   if (!chosenEventId) return;
   const вернуть = начатьОтвет_(groupId, btnEl, "Записываем…");
   if (!вернуть) return;
   try {
     await api.respondEvent(groupId, "confirm", chosenEventId);
     ответВПути_.delete(String(groupId));
-    перерисовать_(container, btnEl, вернуть);
+    перерисовать_(container, btnEl, () => { вернуть(); показатьИтог_(container, groupId, ev, "confirmed", chosenEventId); });
   } catch (err) {
     вернуть();
-    if (исходНеизвестен_(err)) перерисовать_(container, btnEl);
+    if (исходНеизвестен_(err) || container.isConnected === false) перерисовать_(container, btnEl, null, выборКарточки_(groupId, ev));
     // Через штатное окно Telegram, а не голый window.alert: системное окно
     // браузера внутри Mini App выглядит чужеродно. И не показываем сырой
     // err.message — там технический текст с бэкенда (02.09.2026).
     showAlert(понятнаяОшибка_(err, "Не удалось записаться, попробуйте ещё раз."));
-    if (списокУстарел_(err)) перерисовать_(container, btnEl);
+    if (списокУстарел_(err) && container.isConnected !== false) перерисовать_(container, btnEl);
   }
 }
 
-async function doDecline(container, groupId, btnEl) {
+async function doDecline(container, groupId, btnEl, ev) {
   const вернуть = начатьОтвет_(groupId, btnEl, "Сохраняем…");
   if (!вернуть) return;
   try {
     await api.respondEvent(groupId, "decline");
     ответВПути_.delete(String(groupId));
-    перерисовать_(container, btnEl, вернуть);
+    перерисовать_(container, btnEl, () => { вернуть(); показатьИтог_(container, groupId, ev, "declined", null); });
   } catch (err) {
     вернуть();
-    if (исходНеизвестен_(err)) перерисовать_(container, btnEl);
+    if (исходНеизвестен_(err) || container.isConnected === false) перерисовать_(container, btnEl, null, выборКарточки_(groupId, ev));
     showAlert(понятнаяОшибка_(err, "Не удалось сохранить ответ, попробуйте ещё раз."));
-    if (списокУстарел_(err)) перерисовать_(container, btnEl);
+    if (списокУстарел_(err) && container.isConnected !== false) перерисовать_(container, btnEl);
   }
 }
 
@@ -363,9 +400,36 @@ function списокУстарел_(err) {
  *  странице: пока шёл запрос, студент мог уйти на другую вкладку — раньше список
  *  мероприятий рисовался поверх неё (05.10.2026). Если перечитать не удалось
  *  (пропала связь) — возвращаем кнопку, иначе она оставалась серой навсегда. */
-function перерисовать_(container, btnEl, приСбое) {
-  if (container.isConnected === false) return;
+/**
+ * ОТВЕТ ПРИНЯТ, А СПИСОК ПЕРЕЧИТАТЬ НЕ УДАЛОСЬ (07.10.2026). Сервер подтвердил запись (или отказ), но
+ * следом пропала связь. Раньше карточке возвращались прежние кнопки без единого слова: студент записан,
+ * а на экране снова «Записаться». Итог известен точно — рисуем его на этой карточке без запроса.
+ */
+function показатьИтог_(container, groupId, ev, status, chosenEventId) {
+  if (!ev || container.isConnected === false) return;
+  ev.status = status;
+  ev.chosenEventId = chosenEventId || null;
+  cardState.delete(String(groupId));
+  const карточка = container.querySelector(`.evt-card[data-group="${CSS.escape(String(groupId))}"]`);
+  if (карточка) rerenderCard(карточка, ev);
+}
+
+function выборКарточки_(groupId, ev) {
+  const state = cardState.get(String(groupId));
+  return ev && state ? { groupId: String(groupId), status: ev.status, chosenEventId: ev.chosenEventId, state } : null;
+}
+
+function перерисовать_(container, btnEl, приСбое, выбор) {
+  if (container.isConnected === false) {
+    // 07.10.2026: пока шёл запрос, студент ушёл с экрана и вернулся — на странице уже другая копия
+    // списка, со старым состоянием и заблокированной карточкой. Если открыт снова экран мероприятий,
+    // просим роутер перерисовать его (кеш списка к этому моменту сброшен, придёт свежий).
+    if (/^#\/?event(\/|$)/.test(window.location.hash)) window.dispatchEvent(new Event("state-refreshed"));
+    return;
+  }
+  выборПослеОбрыва_ = выбор || null;
   render(container).catch((err) => {
+    выборПослеОбрыва_ = null;
     console.warn("[events] не удалось обновить список:", err);
     if (btnEl) btnEl.disabled = false;
     if (приСбое) приСбое(); // вернуть карточке кнопки и подпись, заблокированные на время запроса
