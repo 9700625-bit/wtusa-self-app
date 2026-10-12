@@ -66,7 +66,9 @@ export function openTelegramLink(url) {
  * должно ронять приложение на старых клиентах.
  */
 const WRITE_ACCESS_KEY_ = "wtusa_write_access_v1";
-export function requestWriteAccessIfNeeded() {
+// P13 (12.10.2026): onAllowed — вызывается, когда студент нажал «Разрешить»;
+// приложение сообщает об этом бэкенду, и тот сразу дошлёт недоставленные приглашения.
+export function requestWriteAccessIfNeeded(onAllowed) {
   try {
     const app = tg();
     if (!app || typeof app.requestWriteAccess !== "function") return;
@@ -84,6 +86,9 @@ export function requestWriteAccessIfNeeded() {
     app.requestWriteAccess((allowed) => {
       if (!allowed) return;
       try { window.localStorage.setItem(key, "ok"); } catch { /* хранилище недоступно */ }
+      if (typeof onAllowed === "function") {
+        try { onAllowed(); } catch { /* сообщение бэкенду — необязательно */ }
+      }
     });
   } catch (err) {
     console.warn("[telegram] requestWriteAccess недоступен:", err);

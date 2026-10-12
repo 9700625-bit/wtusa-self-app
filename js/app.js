@@ -279,7 +279,7 @@ async function подставитьСезонВШапку() {
     // Состояние пришло — значит, студент подключён. Самое время спросить
     // разрешение боту писать ему (см. requestWriteAccessIfNeeded): без него
     // напоминания и приглашения до человека не доходят.
-    requestWriteAccessIfNeeded();
+    requestWriteAccessIfNeeded(() => { api.reportWriteAccess().catch(() => {}); });
     const program = (participant && participant.program) || "";
     const season = (participant && participant.season) || "";
     // ГОД БЕЗ ИСТОЧНИКА (14.09.2026). Условие было `program && season`, то

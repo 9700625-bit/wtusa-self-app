@@ -270,6 +270,11 @@ export async function postSupport(message) {
     return apiPost("support", { message });
 }
 
+/** P13: студент разрешил боту писать (окно Telegram requestWriteAccess) — см. writeAccessFromApp_ в Bot.gs. */
+export async function reportWriteAccess() {
+    return apiPost("writeAccess", { allowed: true });
+}
+
 /** Ошибка JavaScript на экране → владельцу в Telegram (см. clientError_ в Api.gs). */
 export async function reportClientError(payload) {
     return apiPost("clientError", payload);

@@ -307,9 +307,8 @@ function сообщение(текст, вид) {
  * вкладку, и пароль исчез. В пределах рабочего сеанса ничего не меняется,
  * перезаходить не нужно. Плюс появилась кнопка «Выйти».
  *
- * Это не отменяет главного правила: пароль всё ещё уходит в адресе запроса
- * (см. Api.gs), поэтому попадает в журнал выполнений Apps Script. Полностью
- * это чинится переносом секрета в тело POST-запроса — отдельная правка.
+ * С 12.10.2026 (P17) пароль уходит в теле POST-запроса, а не в адресе — в
+ * журнал выполнений Apps Script и историю браузера он больше не попадает.
  */
 const SECRET_KEY = "wtusa_admin_secret";
   const gateEl = document.getElementById("gate");
@@ -339,11 +338,18 @@ const SECRET_KEY = "wtusa_admin_secret";
   const ТАЙМАУТ_ЗАГРУЗКИ_МС = 45000;
 
   async function adminGet(action, extraParams, timeoutMs) {
-    const params = new URLSearchParams({ action, secret: secret(), ...(extraParams || {}) });
+    // P17 (12.10.2026): пароль — в теле POST, а не в адресе (адрес оседает в истории
+    // браузера и журнале Google). Чтение тоже идёт POST-ом; сервер отвечает тем же.
+    const params = new URLSearchParams({ action });
     const ctrl = timeoutMs && typeof AbortController === "function" ? new AbortController() : null;
     const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
     try {
-      const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, { method: "GET", signal: ctrl ? ctrl.signal : undefined });
+      const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(Object.assign({}, extraParams || {}, { secret: secret() })),
+      signal: ctrl ? ctrl.signal : undefined,
+    });
       const json = await resp.json();
       if (json.error) throw new Error(json.error);
       return json;
@@ -356,11 +362,11 @@ const SECRET_KEY = "wtusa_admin_secret";
   }
 
   async function adminPost(action, payload) {
-    const params = new URLSearchParams({ action, secret: secret() });
+    const params = new URLSearchParams({ action }); // P17: пароль — в теле
     const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" }, // same CORS workaround as the app itself
-      body: JSON.stringify(payload || {}),
+      body: JSON.stringify(Object.assign({}, payload || {}, { secret: secret() })),
     });
     const json = await resp.json();
     if (json.error) throw new Error(json.error);

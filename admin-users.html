@@ -201,9 +201,8 @@ import { STAGES } from "./js/config/roadmap.config.js";
  * вкладку, и пароль исчез. В пределах рабочего сеанса ничего не меняется,
  * перезаходить не нужно. Плюс появилась кнопка «Выйти».
  *
- * Это не отменяет главного правила: пароль всё ещё уходит в адресе запроса
- * (см. Api.gs), поэтому попадает в журнал выполнений Apps Script. Полностью
- * это чинится переносом секрета в тело POST-запроса — отдельная правка.
+ * С 12.10.2026 (P17) пароль уходит в теле POST-запроса, а не в адресе — в
+ * журнал выполнений Apps Script и историю браузера он больше не попадает.
  */
 const SECRET_KEY = "wtusa_admin_secret";
 const gateEl = document.getElementById("gate");
@@ -234,11 +233,18 @@ function secret() {
 const ТАЙМАУТ_ЗАГРУЗКИ_МС = 45000;
 
 async function adminGet(action, extraParams, timeoutMs) {
-  const params = new URLSearchParams({ action, secret: secret(), ...(extraParams || {}) });
+  // P17 (12.10.2026): пароль — в теле POST, а не в адресе (адрес оседает в истории
+    // браузера и журнале Google). Чтение тоже идёт POST-ом; сервер отвечает тем же.
+    const params = new URLSearchParams({ action });
   const ctrl = timeoutMs && typeof AbortController === "function" ? new AbortController() : null;
   const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
   try {
-    const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, { method: "GET", signal: ctrl ? ctrl.signal : undefined });
+    const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(Object.assign({}, extraParams || {}, { secret: secret() })),
+      signal: ctrl ? ctrl.signal : undefined,
+    });
     const json = await resp.json();
     if (json.error) throw new Error(json.error);
     return json;
@@ -287,6 +293,11 @@ function daysOnStage(ymd) {
 // бэкенда (adminListAllParticipants_: active: p.active === "no" ? "no" : "");
 // пока его нет, страница ведёт себя как раньше.
 const закрыт = (u) => u.active === "no";
+// P13/P17 (12.10.2026): бот не может писать студенту (заблокировал бота или ни разу не открыл чат) —
+// canWrite "no"; тестовые и исключённые сделки — excluded. Старый бэкенд этих полей не отдаёт —
+// тогда ни плашек, ни отличий в цифрах.
+const ботНеПишет = (u) => !закрыт(u) && u.canWrite === "no";
+const тест = (u) => u.excluded === true;
 
 function formatDate(iso) {
   if (!iso) return "—";
@@ -304,7 +315,7 @@ function formatRelative(iso) {
 }
 
 const STUCK_DAYS = 14;
-let currentFilter = "all"; // all | stuck | overdue | stale
+let currentFilter = "all"; // all | stuck | overdue | stale | nobot
 function applyFilter_(list) {
   // Закрытые сделки не «застряли»: они стоят на этапе навсегда и занимали
   // верх этого списка.
@@ -312,15 +323,19 @@ function applyFilter_(list) {
   if (currentFilter === "stuck") return list.filter((u) => stuckDays(u) >= STUCK_DAYS).sort((a, b) => stuckDays(b) - stuckDays(a));
   if (currentFilter === "overdue") return list.filter((u) => u.overduePayments > 0).sort((a, b) => b.overduePayments - a.overduePayments);
   if (currentFilter === "stale") return list.filter((u) => !закрыт(u) && daysSince(u.lastActivity) > STALE_DAYS);
+  if (currentFilter === "nobot") return list.filter(ботНеПишет);
   return list;
 }
 function renderFilters() {
-  const items = [["all", "Все"], ["stuck", `На этапе ${STUCK_DAYS}+ дней`], ["overdue", "Просрочка оплаты"], ["stale", "Не заходили"]];
+  const items = [["all", "Все"], ["stuck", `На этапе ${STUCK_DAYS}+ дней`], ["overdue", "Просрочка оплаты"], ["stale", "Не заходили"], ["nobot", "Бот не может писать"]];
   return `<div class="filters">${items.map(([k, label]) => `<button type="button" class="chip${currentFilter === k ? " active" : ""}" data-filter="${k}">${label}</button>`).join("")}</div>`;
 }
 
-function renderStats(list) {
+function renderStats(all) {
+  // Тестовые и исключённые сделки в цифрах не считаем (в таблице они остаются, с пометкой «тест»).
+  const list = all.filter((u) => !тест(u));
   const total = list.length;
+  const nobot = list.filter(ботНеПишет).length;
   const activeWeek = list.filter((u) => daysSince(u.lastActivity) <= 7).length;
   const stale = list.filter((u) => !закрыт(u) && daysSince(u.lastActivity) > STALE_DAYS).length;
   const stuck = list.filter((u) => !закрыт(u) && daysOnStage(u.stageSince) >= STUCK_DAYS).length;
@@ -328,7 +343,8 @@ function renderStats(list) {
     <div class="stat-tile"><div class="num">${stuck}</div><div class="label">На этапе ${STUCK_DAYS}+ дней</div></div>
     <div class="stat-tile"><div class="num">${total}</div><div class="label">Всего подключено</div></div>
     <div class="stat-tile"><div class="num">${activeWeek}</div><div class="label">Активны за 7 дней</div></div>
-    <div class="stat-tile"><div class="num">${stale}</div><div class="label">Не заходили ${STALE_DAYS}+ дней</div></div>`;
+    <div class="stat-tile"><div class="num">${stale}</div><div class="label">Не заходили ${STALE_DAYS}+ дней</div></div>
+    <div class="stat-tile"><div class="num">${nobot}</div><div class="label">Бот не может писать</div></div>`;
 }
 
 function renderTable(filterText) {
@@ -361,6 +377,8 @@ function renderTable(filterText) {
       const programLine = [u.program, u.season].filter(Boolean).join(" · ") || "—";
       const flags = [
         закрыт(u) ? `<span class="badge-stale">сделка закрыта</span>` : "",
+        тест(u) ? `<span class="badge-wait">тест / исключён</span>` : "",
+        ботНеПишет(u) ? `<span class="badge-stale">бот не может писать</span>` : "",
         stuck ? `<span class="badge-stuck">на этапе ${onStage} дн.</span>` : "",
         // Счётчики — только числа (06.10.2026): это были две последние подстановки
         // в разметку без esc(); сервер шлёт числа, но страница на это не полагается.

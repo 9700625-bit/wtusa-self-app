@@ -89,6 +89,10 @@ export function postSupport(message) {
     return delay({ ok: true });
 }
 
+export function reportWriteAccess() {
+    return delay({ ok: true }); // демо-режим: бэкенда нет
+}
+
 export function reportClientError() {
     return delay({ ok: true }); // в демо-режиме некуда слать
 }
