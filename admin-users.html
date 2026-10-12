@@ -328,7 +328,9 @@ function applyFilter_(list) {
 }
 function renderFilters() {
   const items = [["all", "Все"], ["stuck", `На этапе ${STUCK_DAYS}+ дней`], ["overdue", "Просрочка оплаты"], ["stale", "Не заходили"], ["nobot", "Бот не может писать"]];
-  return `<div class="filters">${items.map(([k, label]) => `<button type="button" class="chip${currentFilter === k ? " active" : ""}" data-filter="${k}">${label}</button>`).join("")}</div>`;
+  // P12: из фильтра «Бот не может писать» — сразу в рассылку по WhatsApp со ссылкой на бота.
+  const вРассылку = currentFilter === "nobot" ? `<a class="chip" href="admin-broadcasts.html?segment=cannot_write" style="text-decoration:none">Рассылка этим →</a>` : "";
+  return `<div class="filters">${items.map(([k, label]) => `<button type="button" class="chip${currentFilter === k ? " active" : ""}" data-filter="${k}">${label}</button>`).join("")}${вРассылку}</div>`;
 }
 
 function renderStats(all) {

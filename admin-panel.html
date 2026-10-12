@@ -79,6 +79,7 @@
       <button type="button" class="panel-tab active" data-tab="link">Привязка</button>
       <button type="button" class="panel-tab" data-tab="events">Мероприятия</button>
       <button type="button" class="panel-tab" data-tab="users">Студенты</button>
+      <button type="button" class="panel-tab" data-tab="broadcasts">Рассылки</button>
     </div>
     <button type="button" class="panel-logout" id="logout-btn">Выйти</button>
   </div>
@@ -86,6 +87,7 @@
     <iframe data-tab="link" class="active" title="Привязка студентов"></iframe>
     <iframe data-tab="events" title="Мероприятия и посещаемость"></iframe>
     <iframe data-tab="users" title="Студенты"></iframe>
+    <iframe data-tab="broadcasts" title="Рассылки"></iframe>
   </div>
 </div>
 
@@ -123,9 +125,9 @@ function сообщение(текст, вид) {
   if (вид === "ok") setTimeout(() => el.remove(), 10000);
 }
 
-  // Тот же ключ, что и во всех трёх страницах — они войдут сами.
+  // Тот же ключ, что и во всех страницах кабинета — они войдут сами.
   const SECRET_KEY = "wtusa_admin_secret";
-  const SRC = { link: "admin.html", events: "admin-events.html", users: "admin-users.html" };
+  const SRC = { link: "admin.html", events: "admin-events.html", users: "admin-users.html", broadcasts: "admin-broadcasts.html" };
   const gateEl = document.getElementById("gate");
   const mainEl = document.getElementById("main");
 
