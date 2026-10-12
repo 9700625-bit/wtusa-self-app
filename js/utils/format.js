@@ -38,13 +38,20 @@ export function formatDate(isoDate, opts = {}) {
   return `${day} ${month}${showYear ? " " + d.getFullYear() : ""}`;
 }
 
-/** currency: "USD" (default) -> "$1,234"; "KZT" -> "200 000 ₸". */
+/** currency: "USD" (default) -> "$2 850"; "KZT" -> "200 000 ₸".
+ *
+ * ДОЛЛАРЫ — С РУССКИМИ РАЗРЯДАМИ (12.10.2026). Что ломалось: доллары писались
+ * по-американски («$2,850»), а тенге рядом — по-русски («200 000 ₸»); в
+ * «Оплачено: $2,850 + 200 000 ₸» запятая читалась как десятичная — «два доллара
+ * восемьдесят пять центов». Теперь обе валюты с пробелом между разрядами
+ * («$2 850»). Пробел неразрывный (так его ставит toLocaleString("ru-RU"), и
+ * перед ₸ — тоже): сумма не переносится на две строки на узком экране. */
 export function formatMoney(amount, currency = "USD") {
   const n = Number(amount) || 0;
   if (currency === "KZT") {
-    return `${n.toLocaleString("ru-RU")} ₸`;
+    return `${n.toLocaleString("ru-RU")}\u00a0₸`;
   }
-  return `$${n.toLocaleString("en-US")}`;
+  return `$${n.toLocaleString("ru-RU")}`;
 }
 
 /** Days remaining until isoDate, relative to "today" (see NOW below). Negative = overdue. */

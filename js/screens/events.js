@@ -140,20 +140,29 @@ function isPastEvent(ev) {
  * уже выбранный слот и целиком прошедшее мероприятие не трогаем — их рисуют свои ветки.
  * Запас в час — как в isPastEvent.
  */
-function slotPassed_(s) {
+/*
+ * УЖЕ НАЧАВШЕЕСЯ ВРЕМЯ ТОЖЕ НЕ ПРЕДЛАГАЕМ (12.10.2026). Что ломалось: слот убирался из выбора
+ * только через час после начала (запас из isPastEvent), и в 17:30 студент спокойно «записывался»
+ * на встречу, начавшуюся в 17:00. Теперь из выбора уходит всё, что уже началось (по Астане).
+ * Свой подтверждённый слот студент видит, как и раньше. Если не осталось ни одного времени —
+ * карточка «Запись закрыта» без кнопок (см. closedBodyHtml), а не пустой выбор.
+ */
+function slotStarted_(s) {
   if (!s.date) return false;
-  const end = new Date(s.date + "T" + (s.time || "23:59") + ":00+05:00").getTime(); // по Астане, см. isPastEvent
-  return !isNaN(end) && end + 60 * 60 * 1000 < Date.now();
+  const start = new Date(s.date + "T" + (s.time || "23:59") + ":00+05:00").getTime(); // по Астане, см. isPastEvent
+  return !isNaN(start) && start <= Date.now();
 }
 function withoutPassedSlots_(ev) {
   if (ev.attended !== null || isPastEvent(ev)) return ev;
-  const slots = ev.slots.filter((s) => !slotPassed_(s) || s.id === ev.chosenEventId);
+  const slots = ev.slots.filter((s) => !slotStarted_(s) || s.id === ev.chosenEventId);
+  if (!slots.length) return { ...ev, записьЗакрыта: true };
   return slots.length === ev.slots.length ? ev : { ...ev, slots };
 }
 
 function isSummaryView(ev, state) {
   if (ev.attended !== null) return true;
   if (isPastEvent(ev)) return true;
+  if (ev.записьЗакрыта) return true;
   if (ev.status === "declined" && !state.overridePicker) return true;
   if (ev.status === "confirmed" && state.view !== "confirm" && !state.overridePicker) return true;
   return false;
@@ -167,6 +176,23 @@ function isSummaryView(ev, state) {
  * the roster config). Matching is by key only, never by title text -- see
  * briefingRoster.config.js and Events.gs (adminCreateEventAndInvite_).
  */
+/** Приглашение без ответа или будущая встреча, на которую студент записан (см. render). */
+function требуетВнимания_(ev) {
+  if (ev.attended !== null || isPastEvent(ev) || ev.записьЗакрыта) return false;
+  if (ev.status === "invited") return true;
+  if (ev.status !== "confirmed") return false;
+  // Записан на время, которое прошло больше часа назад (а другие варианты ещё впереди), —
+  // это уже не «ближайшее».
+  const мой = ev.slots.find((s) => s.id === ev.chosenEventId);
+  if (!мой || !мой.date) return true;
+  const начало = new Date(мой.date + "T" + (мой.time || "23:59") + ":00+05:00").getTime();
+  return isNaN(начало) || начало + 60 * 60 * 1000 >= Date.now();
+}
+function ближайшееВремя_(ev) {
+  const слоты = ev.status === "confirmed" && ev.chosenEventId ? ev.slots.filter((s) => s.id === ev.chosenEventId) : ev.slots;
+  return слоты.map((s) => String(s.date || "") + " " + String(s.time || "")).sort()[0] || "9999";
+}
+
 function splitRosterAndExtra_(events) {
   const byKey = new Map(events.filter((e) => e.briefingKey).map((e) => [e.briefingKey, e]));
   const rosterKeys = new Set(BRIEFING_ROSTER.map((r) => r.key));
@@ -203,17 +229,31 @@ export async function render(container, params = []) {
   }
 
   const { rosterEvents, extraEvents } = splitRosterAndExtra_(events);
-  const rosterHtml = BRIEFING_ROSTER.map((item, i) => (rosterEvents[i] ? cardWrapperHtml(rosterEvents[i]) : rosterPlaceholderHtml(item))).join("");
-  const extraHtml = extraEvents.length
-    ? `<h2 style="font-size:16px;margin:18px 0 10px">Дополнительные мероприятия</h2>${extraEvents.map(cardWrapperHtml).join("")}`
+  // ГДЕ НУЖЕН ОТВЕТ — СВЕРХУ (12.10.2026). Что ломалось: экран начинался с фиксированного списка
+  // брифингов — прошедших («Вы посетили») и бледных заглушек «Ожидается», а приглашение, на которое
+  // надо ответить, или ближайшая встреча, на которую студент записан, оказывались в середине или
+  // в самом низу («Дополнительные мероприятия»). Студент открывал экран по уведомлению и не видел,
+  // что от него ждут. Теперь такие карточки — первыми, под заголовком «Ближайшие»; в общем списке
+  // ниже они не повторяются.
+  const срочные = events
+    .filter(требуетВнимания_)
+    .sort((a, b) => (a.status === "invited" ? 0 : 1) - (b.status === "invited" ? 0 : 1) || ближайшееВремя_(a).localeCompare(ближайшееВремя_(b)));
+  const срочныеId = new Set(срочные.map((e) => e.groupId));
+  const rosterHtml = BRIEFING_ROSTER.map((item, i) => (rosterEvents[i] ? (срочныеId.has(rosterEvents[i].groupId) ? "" : cardWrapperHtml(rosterEvents[i])) : rosterPlaceholderHtml(item))).join("");
+  const остальныеДоп = extraEvents.filter((e) => !срочныеId.has(e.groupId));
+  const extraHtml = остальныеДоп.length
+    ? `<h2 style="font-size:16px;margin:18px 0 10px">Дополнительные мероприятия</h2>${остальныеДоп.map(cardWrapperHtml).join("")}`
     : "";
+  const срочныеHtml = срочные.length
+    ? `<h2 style="font-size:16px;margin:4px 0 10px">Ближайшие</h2>${срочные.map(cardWrapperHtml).join("")}`
+    : "";
+  const заголовокСписка = срочные.length && rosterHtml ? `<h2 style="font-size:16px;margin:18px 0 10px">Все брифинги</h2>` : "";
 
   container.innerHTML = `
     <section class="screen active">
       <button class="btn secondary" id="back-btn" style="width:auto;padding:8px 14px;margin-bottom:12px">← Назад</button>
       <h1 style="font-size:20px;margin:4px 0 12px">Мероприятия</h1>
-            ${attendanceSummaryHtml(rosterEvents, extraEvents)}
-      <div id="events-list">${rosterHtml}${extraHtml}</div>
+      <div id="events-list">${срочныеHtml}${attendanceSummaryHtml(rosterEvents, extraEvents)}${заголовокСписка}${rosterHtml}${extraHtml}</div>
     </section>`;
 
   container.querySelector("#back-btn").addEventListener("click", goBack);
@@ -507,6 +547,7 @@ function cardBodyHtml(ev) {
 
   if (ev.attended !== null) return doneBodyHtml(ev);
   if (isPastEvent(ev)) return pastBodyHtml(ev);
+  if (ev.записьЗакрыта) return closedBodyHtml(ev);
   if (isSummaryView(ev, state)) {
     return ev.status === "declined" ? declinedBodyHtml(ev) : confirmedBodyHtml(ev);
   }
@@ -537,6 +578,21 @@ function pastBodyHtml(ev) {
     <div class="evt-meta" style="margin-top:14px">
       <div class="evt-meta-row"><span class="evt-meta-ico">${I.clock}</span> ${formatDate(slot.date)}${slot.time ? " · " + esc(slot.time) : ""}</div>
       ${wasBooked ? `<div class="sub" style="margin-top:6px">Вы были записаны. Отметка о посещении появится после проверки координатором.</div>` : ""}
+    </div>`;
+}
+
+/** Всё время уже началось, своего подтверждённого слота нет — записаться нельзя, кнопок нет. */
+function closedBodyHtml(ev) {
+  const slot = ev.slots[0];
+  return `
+    <div class="evt-done">
+      <div class="evt-done-ico muted">${I.clockBig}</div>
+      <div class="evt-done-title">Запись закрыта</div>
+      <div class="sub">${esc(ev.title)}</div>
+    </div>
+    <div class="evt-meta" style="margin-top:14px">
+      <div class="evt-meta-row"><span class="evt-meta-ico">${I.clock}</span> ${formatDate(slot.date)}${slot.time ? " · " + esc(slot.time) : ""}</div>
+      <div class="sub" style="margin-top:6px">Мероприятие уже началось. Если хотите попасть на следующее — напишите координатору.</div>
     </div>`;
 }
 

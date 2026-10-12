@@ -52,6 +52,10 @@ export const GROUPS = [
 ];
 
 // `order` is global and strictly increasing — used to derive done/current/upcoming.
+// ЭМОДЗИ В ТЕКСТАХ ЭТАПОВ УБРАНЫ (12.10.2026). На iPhone 📅 🎉 🇺🇸 🔥 рисуются цветными
+// «наклейками» (📅 — листок «July 17»), в заголовке этапа и на кнопке это выглядело как
+// ошибка: «Визовое интервью назначено July 17». Тексты (title, label, description,
+// detail) — без эмодзи; поле icon оставлено — его показывает только демо-панель.
 export const STAGES = [
   // ---------------------------------------------------------------- ОФОРМЛЕНИЕ
   {
@@ -67,7 +71,7 @@ export const STAGES = [
     // явно попросил убрать эту привязку — оформились не значит оплатили,
     // это просто вступление в программу. Текст теперь празднующий, без
     // упоминания денег.
-    description: "Поздравляем со вступлением в программу Work & Travel USA SELF — это первый шаг на пути к лету вашей мечты! 🎉",
+    description: "Поздравляем со вступлением в программу Work & Travel USA SELF — это первый шаг на пути к лету вашей мечты!",
     detail: {
       whatsHappening: "Вы официально стали участником программы Work & Travel USA SELF 2027.",
       whatRequired: "Ничего — этот шаг уже пройден.",
@@ -149,7 +153,7 @@ export const STAGES = [
     // через amoCRM-задачу; координатор вручную связывается со студентом и
     // переводит сделку на этап "Job Offer получен" (JOB_OFFER_SENT_INTL_REP),
     // где уже настроена видео-инструкция по загрузке офера.
-    cta: { label: "У меня есть Job Offer 🎉", action: "confirmJobOffer" },
+    cta: { label: "У меня есть Job Offer", action: "confirmJobOffer" },
   },
 
   // ----------------------------------------------------------------- JOB OFFER
@@ -174,7 +178,7 @@ export const STAGES = [
     },
     // Та же кнопка, что и на предыдущем этапе: студент может найти офер в
     // любой момент этого периода, и сообщить об этом он должен одинаково.
-    cta: { label: "У меня есть Job Offer 🎉", action: "confirmJobOffer" },
+    cta: { label: "У меня есть Job Offer", action: "confirmJobOffer" },
   },
   {
     id: "JOB_OFFER_SENT_INTL_REP",
@@ -303,7 +307,7 @@ export const STAGES = [
     detail: {
       whatsHappening: "CIEE проверяет подписанный Job Offer в последний раз перед подтверждением.",
       whatRequired: "Пока ничего.",
-      whatsNext: "После успешной проверки — Job Offer подтверждён 🎉. Если найдутся замечания, координатор свяжется с вами.",
+      whatsNext: "После успешной проверки — Job Offer подтверждён. Если найдутся замечания, координатор свяжется с вами.",
     },
     cta: null,
   },
@@ -348,7 +352,7 @@ export const STAGES = [
     id: "PLACEMENT_COMPLETED",
     group: "job_offer",
     order: 10,
-    title: "Job Offer подтверждён 🎉",
+    title: "Job Offer подтверждён",
     shortTitle: "Placement Completed",
     actionRequired: false,
     severity: "ok",
@@ -357,7 +361,7 @@ export const STAGES = [
     description: "Офер полностью подтверждён CIEE. Следующий этап — отправка документов в CIEE для выпуска DS-2019.",
     detail: {
       whatsHappening: "Ваш Job Offer полностью подтверждён CIEE — один из главных этапов программы завершён.",
-      whatRequired: "Ничего — можно выдохнуть и отпраздновать 🎉",
+      whatRequired: "Ничего — можно выдохнуть и отпраздновать!",
       whatsNext: "ABC Universe соберёт и передаст Sponsor необходимые документы для выпуска DS-2019.",
     },
     cta: null,
@@ -460,7 +464,7 @@ export const STAGES = [
     id: "VISA_INTERVIEW_SCHEDULED",
     group: "visa",
     order: 15,
-    title: "Визовое интервью назначено 📅",
+    title: "Визовое интервью назначено",
     shortTitle: "Интервью назначено",
     actionRequired: true,
     severity: "warn",
@@ -488,7 +492,7 @@ export const STAGES = [
       whatRequired: "Проверьте дату и время интервью, соберите документы по чек-листу.",
       whatsNext: "В день интервью — визовое собеседование в посольстве/консульстве США. После — Passport ready и решение по визе.",
     },
-  cta: { label: "Я готов(а) к визе 🔥", action: "confirmVisaReady" },
+  cta: { label: "Я готов(а) к визе", action: "confirmVisaReady" },
     // ЗДЕСЬ БЫЛО ОБЕЩАНИЕ НАПОМИНАНИЙ (03.09.2026): reminderSchedule
     // ["за 7 дней", "за 3 дня", "за 1 день", "утром в день интервью"] —
     // statusDetail.js рисовал по нему карточку «Напоминания в Telegram».
@@ -507,7 +511,7 @@ export const STAGES = [
     id: "PASSPORT_READY",
     group: "visa",
     order: 17,
-    title: "Паспорт готов 🎉",
+    title: "Паспорт готов",
     shortTitle: "Passport",
     actionRequired: true,
     severity: "warn",
@@ -523,17 +527,17 @@ export const STAGES = [
     id: "VISA_APPROVED",
     group: "visa",
     order: 18,
-    title: "Виза J-1 одобрена 🎉🇺🇸",
+    title: "Виза J-1 одобрена",
     shortTitle: "Visa Approved",
     actionRequired: true,
     severity: "ok",
     icon: "🇺🇸",
     celebration: true,
-    description: "Поздравляем — вы прошли этот путь! Ваша J-1 Visa одобрена 🎉 ABC Universe желает вам прекрасного лета, незабываемых эмоций, новых друзей и ярких впечатлений. Пора собирать чемодан — чек-лист к вылету ждёт ниже.",
+    description: "Поздравляем — вы прошли этот путь! Ваша J-1 Visa одобрена! ABC Universe желает вам прекрасного лета, незабываемых эмоций, новых друзей и ярких впечатлений. Пора собирать чемодан — чек-лист к вылету ждёт ниже.",
     detail: {
       whatsHappening: "Ваша J-1 Visa одобрена — паспорт получен.",
       whatRequired: "Закройте чек-лист подготовки к вылету ниже.",
-      whatsNext: "Когда все пункты чек-листа закрыты — вы готовы к вылету ✈️",
+      whatsNext: "Когда все пункты чек-листа закрыты — вы готовы к вылету.",
     },
     // No amoCRM status exists after VISA APPROVE (the deal is simply won from
     // here), so Pre-Departure / Ready-to-fly, previously separate stages

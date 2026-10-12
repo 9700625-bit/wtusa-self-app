@@ -47,6 +47,36 @@ function redirect(path) {
   navigate(path);
 }
 
+/**
+ * КНОПКА «НАЗАД» TELEGRAM (12.10.2026).
+ *
+ * Что ломалось. В шапке Telegram у Mini App всегда был крестик «Закрыть», а
+ * «Назад» — только кнопкой внутри экрана, которую на длинном экране надо было
+ * искать прокруткой вверх. Привычный жест «назад» (крестик/стрелка вверху,
+ * свайп на Android) закрывал приложение целиком.
+ *
+ * Теперь, если в истории приложения больше одного экрана, показываем штатную
+ * кнопку Telegram BackButton; нажатие — тот же goBack(), что и у кнопки
+ * «← Назад» на экране. На первом экране кнопку прячем. Старые клиенты без
+ * BackButton просто ничего не показывают.
+ */
+let кнопкаНазадПодключена = false;
+function обновитьКнопкуНазад_() {
+  try {
+    const app = window.Telegram && window.Telegram.WebApp;
+    const bb = app && app.BackButton;
+    if (!bb || typeof bb.show !== "function" || typeof bb.hide !== "function") return;
+    if (!кнопкаНазадПодключена && typeof bb.onClick === "function") {
+      bb.onClick(goBack);
+      кнопкаНазадПодключена = true;
+    }
+    if (historyStack.length > 1) bb.show();
+    else bb.hide();
+  } catch (e) {
+    // кнопка — удобство, ошибка в ней не должна ронять отрисовку экрана
+  }
+}
+
 function parseHash() {
   const raw = window.location.hash.replace(/^#\/?/, "");
   const [name, ...rest] = raw.split("/").filter(Boolean);
@@ -102,6 +132,7 @@ async function render(force) {
   if (historyStack[historyStack.length - 1] !== currentEntry) {
     historyStack.push(currentEntry);
   }
+  обновитьКнопкуНазад_();
 
   const seq = ++renderSeq;
   const актуальна = () => seq === renderSeq;

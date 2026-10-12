@@ -58,9 +58,21 @@ table.users tr:last-child td{border-bottom:0}
 .flags{margin-top:4px;display:flex;flex-wrap:wrap;gap:4px}
 .badge-stuck{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:3px 8px;background:#fff1e0;color:#b97000}
 .badge-wait{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:3px 8px;background:#eef2ff;color:#4966d8}
+/* ЭКРАН «ЗАГРУЗКА…» ВМЕСТО ЛОЖНОГО ВХОДА (12.10.2026), см. loadMain. */
+#boot{max-width:340px;margin:80px auto;padding:0 16px}
+#boot-text.err{color:var(--danger)}
+.gate-err{color:var(--danger);font-size:13px;margin-top:10px}
+/* СООБЩЕНИЯ НА СТРАНИЦЕ ВМЕСТО ОКОН alert (12.10.2026), см. сообщение(). */
+#toasts{position:fixed;top:10px;left:50%;transform:translateX(-50%);width:min(620px,calc(100% - 20px));z-index:50;display:grid;gap:8px;pointer-events:none}
+.toast{pointer-events:auto;display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid var(--line);border-left:4px solid var(--navy);border-radius:10px;padding:10px 12px;box-shadow:0 6px 24px rgba(15,35,68,.16);font-size:14px;line-height:1.4;white-space:pre-line;overflow-wrap:anywhere}
+.toast.err{border-left-color:var(--danger)}
+.toast.ok{border-left-color:var(--ok)}
+.toast.warn{border-left-color:var(--warn)}
+.toast-x{margin-left:auto;flex:none;background:none;border:0;font-size:16px;line-height:1;padding:2px 4px;cursor:pointer;color:var(--muted)}
 </style>
 </head>
 <body>
+<div id="toasts" aria-live="polite"></div>
 
 <div id="gate">
 <div class="card">
@@ -71,8 +83,25 @@ table.users tr:last-child td{border-bottom:0}
 </div>
 <button class="btn" id="gate-submit">Войти</button>
 <div class="sub" style="margin-top:10px">Тот же код, что и для остальных инструментов координатора.</div>
+<div class="gate-err" id="gate-err" role="alert"></div>
 </div>
 </div>
+
+<div id="boot" style="display:none">
+<div class="card">
+<div class="sub" id="boot-text" role="status">Загрузка…</div>
+<button class="btn" id="boot-retry" type="button" style="display:none;margin-top:12px">Повторить</button>
+</div>
+</div>
+<script>
+/* Код уже сохранён — экран входа не показываем даже на миг: сразу «Загрузка…» (12.10.2026). */
+try {
+  if (sessionStorage.getItem("wtusa_admin_secret")) {
+    document.getElementById("gate").style.display = "none";
+    document.getElementById("boot").style.display = "";
+  }
+} catch (e) {}
+</script>
 
 <div class="app" id="main" style="display:none">
 <header class="top">
@@ -124,6 +153,39 @@ function esc(value) {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * СООБЩЕНИЯ НА СТРАНИЦЕ ВМЕСТО alert (12.10.2026).
+ *
+ * Что ломалось. Итог фоновых действий (ответ сервера после отправки, сбой
+ * отметки, сбой загрузки) показывался окном alert: оно останавливает страницу,
+ * пока его не закроют, а в кабинете (страница во фрейме) всплывало поверх
+ * соседней вкладки. Пока окно висело, остальные ответы ждали — по одной
+ * неудачной отметке посещаемости приходилось закрывать по окну на строку.
+ *
+ * Теперь — плашка вверху страницы: не мешает работать, остаётся, пока её не
+ * закроют (✕); успешные сообщения исчезают сами через 10 секунд. Окна
+ * confirm остались только прямо перед отправкой сообщений студентам.
+ */
+function сообщение(текст, вид) {
+  const box = document.getElementById("toasts");
+  if (!box) return;
+  const el = document.createElement("div");
+  el.className = "toast" + (вид ? " " + вид : "");
+  el.setAttribute("role", вид === "err" ? "alert" : "status");
+  const t = document.createElement("div");
+  t.textContent = текст;
+  const x = document.createElement("button");
+  x.type = "button";
+  x.className = "toast-x";
+  x.title = "Закрыть";
+  x.textContent = "✕";
+  x.addEventListener("click", () => el.remove());
+  el.append(t, x);
+  box.appendChild(el);
+  while (box.children.length > 4) box.firstElementChild.remove();
+  if (вид === "ok") setTimeout(() => el.remove(), 10000);
+}
+
 import { BACKEND_URL } from "./js/services/config.js";
 import { STAGES } from "./js/config/roadmap.config.js";
 
@@ -152,23 +214,40 @@ const STALE_DAYS = 14; // no activity for this long -> flagged for the coordinat
 
 let users = []; // adminListAllParticipants_ shape
 
+// Хранилище браузера запрещено — код живёт в памяти страницы до перезагрузки (12.10.2026).
+let секретВПамяти = "";
 function secret() {
   // 05.10.2026: если в Chrome для сайта запрещены cookie и данные сайтов,
   // само обращение к sessionStorage бросает исключение — страница молча
   // переставала работать («Войти» ничего не делала).
   try {
-    return sessionStorage.getItem(SECRET_KEY) || "";
+    return sessionStorage.getItem(SECRET_KEY) || секретВПамяти;
   } catch (e) {
-    return "";
+    return секретВПамяти;
   }
 }
 
-async function adminGet(action, extraParams) {
+// ТАЙМ-АУТ ЗАГРУЗКИ (12.10.2026). Что ломалось: «холодный» сервер Google или
+// зависшее соединение держали страницу на «Загрузка…» бесконечно, без единого
+// слова. Теперь чтение списка обрывается через 45 секунд, и на странице
+// появляется ошибка с кнопкой «Повторить».
+const ТАЙМАУТ_ЗАГРУЗКИ_МС = 45000;
+
+async function adminGet(action, extraParams, timeoutMs) {
   const params = new URLSearchParams({ action, secret: secret(), ...(extraParams || {}) });
-  const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, { method: "GET" });
-  const json = await resp.json();
-  if (json.error) throw new Error(json.error);
-  return json;
+  const ctrl = timeoutMs && typeof AbortController === "function" ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+  try {
+    const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, { method: "GET", signal: ctrl ? ctrl.signal : undefined });
+    const json = await resp.json();
+    if (json.error) throw new Error(json.error);
+    return json;
+  } catch (err) {
+    if (ctrl && ctrl.signal.aborted) throw new Error("TIMEOUT");
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /**
@@ -179,6 +258,7 @@ async function adminGet(action, extraParams) {
 function понятнаяОшибка(err) {
   const m = String((err && err.message) || err || "");
   if (/bad secret/i.test(m)) return "неверный секретный код";
+  if (m === "TIMEOUT") return "сервер не ответил за 45 секунд";
   if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "нет связи с сервером";
   if (/Unexpected token|not valid JSON|Unexpected end of/i.test(m)) return "сервер ответил не по формату (временный сбой на стороне Google)";
   if (/^unknown action/i.test(m)) return "сервер не распознал запрос (" + m + ")";
@@ -308,27 +388,79 @@ function renderTable(filterText) {
   подключитьФильтры();
 }
 
-async function loadUsers() {
-  const wrap = document.getElementById("table-wrap");
-  wrap.innerHTML = `<div class="sub" style="padding:12px">Загрузка…</div>`;
-  try {
-    users = await adminGet("adminListAllParticipants");
-    renderStats(users);
-    renderTable(document.getElementById("search-users").value);
-  } catch (err) {
-    wrap.innerHTML = `<div class="sub" style="padding:12px;color:var(--danger)">Не удалось загрузить список: ${esc(понятнаяОшибка(err))}</div>`;
-  }
+// «Обновить» (12.10.2026): двойной щелчок больше не шлёт два запроса,
+// зависший запрос обрывается по тому же тайм-ауту, что и первая загрузка.
+let обновлениеСписка = null;
+function loadUsers() {
+  if (обновлениеСписка) return обновлениеСписка;
+  обновлениеСписка = (async () => {
+    const wrap = document.getElementById("table-wrap");
+    wrap.innerHTML = `<div class="sub" style="padding:12px">Загрузка…</div>`;
+    try {
+      users = await adminGet("adminListAllParticipants", null, ТАЙМАУТ_ЗАГРУЗКИ_МС);
+      renderStats(users);
+      renderTable(document.getElementById("search-users").value);
+    } catch (err) {
+      wrap.innerHTML = `<div class="sub" style="padding:12px;color:var(--danger)">Не удалось загрузить список: ${esc(понятнаяОшибка(err))}</div>`;
+    }
+  })().finally(() => { обновлениеСписка = null; });
+  return обновлениеСписка;
 }
 
 let entering = false; // guards against a double-click/double-Enter firing tryEnter() twice
 let mainLoaded = false; // guards against loadMain() ever running (and re-binding listeners) twice
+
+/**
+ * ОДНА ЗАГРУЗКА ВМЕСТО ДВУХ И НИКАКОГО ЛОЖНОГО ВХОДА (12.10.2026).
+ *
+ * Что ломалось. При сохранённом коде страница сама начинала загрузку, но всё
+ * это время (на холодном сервере Google — до минуты) на экране оставалась форма
+ * входа. Координатор думал, что его «выкинуло», вводил код ещё раз — и уходил
+ * второй такой же запрос; флаг mainLoaded ставился только в конце, поэтому оба
+ * доходили до привязки обработчиков. Сбой загрузки показывался блокирующим
+ * окном alert, а зависшая загрузка не кончалась никогда.
+ *
+ * Теперь: одна общая загрузка (повторный вызов получает тот же промис); пока
+ * она идёт, вместо формы входа — «Загрузка…»; через 45 секунд — ошибка на
+ * странице и кнопка «Повторить». Неверный код возвращает к форме входа с
+ * пояснением под ней. Обработчики привязываются один раз — после первой
+ * успешной загрузки.
+ */
+let загрузка = null;
+
+function показатьЭкран(какой) {
+  gateEl.style.display = какой === "gate" ? "" : "none";
+  document.getElementById("boot").style.display = какой === "boot" ? "" : "none";
+  mainEl.style.display = какой === "main" ? "block" : "none";
+}
+
+function показатьЗагрузку() {
+  показатьЭкран("boot");
+  const t = document.getElementById("boot-text");
+  t.className = "sub";
+  t.textContent = "Загрузка… На холодном сервере это может занять до минуты.";
+  document.getElementById("boot-retry").style.display = "none";
+}
+
+function показатьСбойЗагрузки(текст) {
+  показатьЭкран("boot");
+  const t = document.getElementById("boot-text");
+  t.className = "sub err";
+  t.textContent = текст;
+  document.getElementById("boot-retry").style.display = "";
+}
+
+function показатьВход(ошибка) {
+  показатьЭкран("gate");
+  document.getElementById("gate-err").textContent = ошибка || "";
+}
 
 async function init() {
   const gateSubmit = document.getElementById("gate-submit");
   const secretInput = document.getElementById("secret-input");
 
   async function tryEnter() {
-    if (entering) return;
+    if (entering || загрузка) return;
     const value = secretInput.value.trim();
     if (!value) return;
     entering = true;
@@ -337,9 +469,12 @@ async function init() {
       try {
         sessionStorage.setItem(SECRET_KEY, value);
       } catch (e) {
-        alert("Браузер не даёт сохранить код входа: в настройках Chrome для этого сайта запрещены cookie и данные сайтов. Разрешите их и обновите страницу.");
-        return;
+        // 12.10.2026: вместо окна alert — плашка, а код держим в памяти страницы:
+        // работать можно, просто после обновления код придётся ввести снова.
+        секретВПамяти = value;
+        сообщение("Браузер не даёт сохранить код входа: в настройках Chrome для этого сайта запрещены cookie и данные сайтов. Страница работает, но после обновления код придётся ввести снова.", "warn");
       }
+      document.getElementById("gate-err").textContent = "";
       await loadMain();
     } finally {
       entering = false;
@@ -350,20 +485,28 @@ async function init() {
   secretInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") tryEnter();
   });
+  document.getElementById("boot-retry").addEventListener("click", () => loadMain());
 
   if (secret()) {
     await loadMain();
+  } else {
+    показатьЭкран("gate");
   }
 }
 
-async function loadMain() {
+function loadMain() {
   if (mainLoaded) {
-    gateEl.style.display = "none";
-    mainEl.style.display = "block";
-    return;
+    показатьЭкран("main");
+    return Promise.resolve();
   }
+  if (!загрузка) загрузка = первичнаяЗагрузка().finally(() => { загрузка = null; });
+  return загрузка;
+}
+
+async function первичнаяЗагрузка() {
+  показатьЗагрузку();
   try {
-    users = await adminGet("adminListAllParticipants");
+    users = await adminGet("adminListAllParticipants", null, ТАЙМАУТ_ЗАГРУЗКИ_МС);
   } catch (err) {
     // КОД СТИРАЕМ ТОЛЬКО ЕСЛИ ОН НЕВЕРНЫЙ (05.10.2026). Раньше любой сбой первой
     // загрузки (нет связи, страница ошибки Google) выглядел как «Не удалось
@@ -373,18 +516,22 @@ async function loadMain() {
     const неверныйКод = /bad secret/i.test(String((err && err.message) || ""));
     if (неверныйКод) {
       try { sessionStorage.removeItem(SECRET_KEY); } catch (e) {}
-      alert("Не удалось войти: неверный секретный код.");
-      // Внутри кабинета возвращаем к общему экрану входа, а не к своему.
-      if (window.parent !== window) { try { window.parent.location.reload(); } catch (e) {} }
+      секретВПамяти = "";
+      // Внутри кабинета возвращаем к общему экрану входа, а не к своему;
+      // причину кабинет покажет под своей формой входа.
+      if (window.parent !== window) {
+        try { sessionStorage.setItem("wtusa_admin_gate_msg", "Неверный секретный код — введите его ещё раз."); } catch (e) {}
+        try { window.parent.location.reload(); } catch (e) {}
+      }
+      показатьВход("Неверный секретный код — введите его ещё раз.");
     } else {
-      alert("Не удалось загрузить данные: " + понятнаяОшибка(err) + ".\n\nКод входа сохранён — обновите страницу через минуту.");
+      показатьСбойЗагрузки("Не удалось загрузить данные: " + понятнаяОшибка(err) + ". Код входа сохранён — нажмите «Повторить».");
     }
     return;
   }
 
   mainLoaded = true;
-  gateEl.style.display = "none";
-  mainEl.style.display = "block";
+  показатьЭкран("main");
 
   renderStats(users);
   renderTable("");

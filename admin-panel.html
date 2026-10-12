@@ -47,9 +47,17 @@
       .panel-tabs{margin-left:0;width:100%;order:3}
       .panel-tab{flex:1;text-align:center;padding:8px 6px;font-size:12.5px}
     }
-  </style>
+  /* СООБЩЕНИЯ НА СТРАНИЦЕ ВМЕСТО ОКОН alert (12.10.2026), см. сообщение(). */
+#toasts{position:fixed;top:10px;left:50%;transform:translateX(-50%);width:min(620px,calc(100% - 20px));z-index:50;display:grid;gap:8px;pointer-events:none}
+.toast{pointer-events:auto;display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid var(--line);border-left:4px solid var(--navy);border-radius:10px;padding:10px 12px;box-shadow:0 6px 24px rgba(15,35,68,.16);font-size:14px;line-height:1.4;white-space:pre-line;overflow-wrap:anywhere}
+.toast.err{border-left-color:var(--danger)}
+.toast.ok{border-left-color:var(--ok)}
+.toast.warn{border-left-color:var(--warn)}
+.toast-x{margin-left:auto;flex:none;background:none;border:0;font-size:16px;line-height:1;padding:2px 4px;cursor:pointer;color:var(--muted)}
+</style>
 </head>
 <body>
+<div id="toasts" aria-live="polite"></div>
 
 <div id="gate">
   <div class="card">
@@ -60,6 +68,7 @@
     </div>
     <button class="btn" id="gate-submit">Войти</button>
     <div class="sub" style="margin-top:10px">Один вход — для привязки студентов, мероприятий и списка участников.</div>
+    <div id="gate-err" role="alert" style="color:var(--danger);font-size:13px;margin-top:10px"></div>
   </div>
 </div>
 
@@ -81,6 +90,39 @@
 </div>
 
 <script>
+/**
+ * СООБЩЕНИЯ НА СТРАНИЦЕ ВМЕСТО alert (12.10.2026).
+ *
+ * Что ломалось. Итог фоновых действий (ответ сервера после отправки, сбой
+ * отметки, сбой загрузки) показывался окном alert: оно останавливает страницу,
+ * пока его не закроют, а в кабинете (страница во фрейме) всплывало поверх
+ * соседней вкладки. Пока окно висело, остальные ответы ждали — по одной
+ * неудачной отметке посещаемости приходилось закрывать по окну на строку.
+ *
+ * Теперь — плашка вверху страницы: не мешает работать, остаётся, пока её не
+ * закроют (✕); успешные сообщения исчезают сами через 10 секунд. Окна
+ * confirm остались только прямо перед отправкой сообщений студентам.
+ */
+function сообщение(текст, вид) {
+  const box = document.getElementById("toasts");
+  if (!box) return;
+  const el = document.createElement("div");
+  el.className = "toast" + (вид ? " " + вид : "");
+  el.setAttribute("role", вид === "err" ? "alert" : "status");
+  const t = document.createElement("div");
+  t.textContent = текст;
+  const x = document.createElement("button");
+  x.type = "button";
+  x.className = "toast-x";
+  x.title = "Закрыть";
+  x.textContent = "✕";
+  x.addEventListener("click", () => el.remove());
+  el.append(t, x);
+  box.appendChild(el);
+  while (box.children.length > 4) box.firstElementChild.remove();
+  if (вид === "ok") setTimeout(() => el.remove(), 10000);
+}
+
   // Тот же ключ, что и во всех трёх страницах — они войдут сами.
   const SECRET_KEY = "wtusa_admin_secret";
   const SRC = { link: "admin.html", events: "admin-events.html", users: "admin-users.html" };
@@ -112,8 +154,23 @@
     location.reload();
   });
 
+  // ОДИН ВХОД — ОДНА ЗАГРУЗКА (12.10.2026). Двойное нажатие «Войти» (или Enter
+  // плюс щелчок) запускало вход дважды. Теперь второй раз ничего не делает.
+  // Если вкладка-фрейм отклонила код, она стирает его, оставляет причину в
+  // sessionStorage и перезагружает кабинет — причину показываем под формой входа
+  // (раньше форма просто появлялась снова, без объяснения).
+  let входВыполнен = false;
+  try {
+    const причина = sessionStorage.getItem("wtusa_admin_gate_msg");
+    if (причина) {
+      document.getElementById("gate-err").textContent = причина;
+      sessionStorage.removeItem("wtusa_admin_gate_msg");
+    }
+  } catch (e) {}
+
   const input = document.getElementById("secret-input");
   function tryEnter() {
+    if (входВыполнен) return;
     const value = input.value.trim();
     if (!value) return;
     // 05.10.2026: при запрещённых в Chrome cookie/данных сайта обращение к
@@ -121,9 +178,12 @@
     try {
       sessionStorage.setItem(SECRET_KEY, value);
     } catch (e) {
-      alert("Браузер не даёт сохранить код входа: в настройках Chrome для этого сайта запрещены cookie и данные сайтов. Разрешите их и обновите страницу.");
+      // 12.10.2026: плашка вместо окна alert. Вкладкам кабинета код передаётся только через
+      // хранилище, поэтому без него кабинет не откроется — подсказываем, что делать.
+      сообщение("Браузер не даёт сохранить код входа: в настройках Chrome для этого сайта запрещены cookie и данные сайтов. Разрешите их и обновите страницу — или откройте нужную страницу отдельно (admin.html, admin-events.html, admin-users.html): там можно работать и без сохранения кода.", "err");
       return;
     }
+    входВыполнен = true;
     showMain(); // проверка кода — на первой же загрузке вкладки: при ошибке она сама покажет «Не удалось войти»
   }
   document.getElementById("gate-submit").addEventListener("click", tryEnter);
@@ -131,7 +191,7 @@
 
   let естьКод = false;
   try { естьКод = !!sessionStorage.getItem(SECRET_KEY); } catch (e) {}
-  if (естьКод) showMain();
+  if (естьКод) { входВыполнен = true; showMain(); }
 </script>
 </body>
 </html>

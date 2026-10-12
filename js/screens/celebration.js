@@ -5,7 +5,7 @@ const CELEBRATION_COPY = {
   // 04.09.2026: PLACED переименован в PLACEMENT_COMPLETED вместе с
   // переработкой всей группы job_offer (см. roadmap.config.js).
   PLACEMENT_COMPLETED: {
-    heading: "Job Offer подтверждён 🎉",
+    heading: "Job Offer подтверждён", // 12.10.2026: без 🎉 — на iPhone это «наклейка», см. roadmap.config.js
     emoji: "🇺🇸",
     lines: ["Ваш Job Offer полностью подтверждён CIEE.", "Один из главных этапов программы завершён."],
   },

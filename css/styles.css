@@ -7,9 +7,15 @@ body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSy
 /* Элементы форм НЕ наследуют шрифт по умолчанию — браузер даёт им свой
    системный. Отсюда «другой шрифт» на экранах с кнопками (22.09.2026). */
 button,input,select,textarea{font-family:inherit;font-size:inherit;line-height:inherit;color:inherit}
-.app{max-width:460px;margin:0 auto;min-height:100vh;background:var(--bg);padding-bottom:88px}
+/* 12.10.2026: на iPhone без кнопки «Домой» нижнее меню выше на полосу жеста
+   (safe-area), и последняя карточка экрана пряталась под ним. */
+.app{max-width:460px;margin:0 auto;min-height:100vh;background:var(--bg);padding-bottom:calc(88px + env(safe-area-inset-bottom))}
 .top{padding:18px 18px 14px;background:linear-gradient(180deg,#0f2344,#17335e);color:#fff;position:sticky;top:0;z-index:2;box-shadow:0 8px 30px rgba(15,35,68,.14)}
-.brand{display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;justify-content:space-between;gap:10px}
+/* УЗКИЙ ЭКРАН 320 px (12.10.2026): плашка сезона «SELF 2027» переносилась на две
+   строки и раздувала шапку. Плашка теперь не переносится и не сжимается —
+   переносится длинное название слева. */
+#brand-season{white-space:nowrap;flex:none}
 .brand b{font-size:15px;letter-spacing:.02em}
 .pill{font-size:12px;padding:6px 10px;border:1px solid rgba(255,255,255,.25);border-radius:999px;background:rgba(255,255,255,.08)}
 .content{padding:16px}

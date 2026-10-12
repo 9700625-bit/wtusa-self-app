@@ -27,7 +27,7 @@
 .app{max-width:640px}
 .field{margin-bottom:14px}
 .field label{display:block;font-size:13px;font-weight:700;margin-bottom:6px;color:var(--navy)}
-.field input{
+.field input,.field select{
   width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
   font-family:inherit;font-size:14px;background:#fff;
 }
@@ -56,9 +56,21 @@
   cursor:pointer;opacity:.7}
 .logout-btn:hover{opacity:1}
 .top{display:flex;align-items:center;gap:12px}
+/* ЭКРАН «ЗАГРУЗКА…» ВМЕСТО ЛОЖНОГО ВХОДА (12.10.2026), см. loadMain. */
+#boot{max-width:340px;margin:80px auto;padding:0 16px}
+#boot-text.err{color:var(--danger)}
+.gate-err{color:var(--danger);font-size:13px;margin-top:10px}
+/* СООБЩЕНИЯ НА СТРАНИЦЕ ВМЕСТО ОКОН alert (12.10.2026), см. сообщение(). */
+#toasts{position:fixed;top:10px;left:50%;transform:translateX(-50%);width:min(620px,calc(100% - 20px));z-index:50;display:grid;gap:8px;pointer-events:none}
+.toast{pointer-events:auto;display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid var(--line);border-left:4px solid var(--navy);border-radius:10px;padding:10px 12px;box-shadow:0 6px 24px rgba(15,35,68,.16);font-size:14px;line-height:1.4;white-space:pre-line;overflow-wrap:anywhere}
+.toast.err{border-left-color:var(--danger)}
+.toast.ok{border-left-color:var(--ok)}
+.toast.warn{border-left-color:var(--warn)}
+.toast-x{margin-left:auto;flex:none;background:none;border:0;font-size:16px;line-height:1;padding:2px 4px;cursor:pointer;color:var(--muted)}
 </style>
 </head>
 <body>
+<div id="toasts" aria-live="polite"></div>
 
 <div id="gate">
 <div class="card">
@@ -69,8 +81,25 @@
 </div>
 <button class="btn" id="gate-submit">Войти</button>
 <div class="sub" style="margin-top:10px">Тот же код, что и для приглашений на мероприятия.</div>
+<div class="gate-err" id="gate-err" role="alert"></div>
 </div>
 </div>
+
+<div id="boot" style="display:none">
+<div class="card">
+<div class="sub" id="boot-text" role="status">Загрузка…</div>
+<button class="btn" id="boot-retry" type="button" style="display:none;margin-top:12px">Повторить</button>
+</div>
+</div>
+<script>
+/* Код уже сохранён — экран входа не показываем даже на миг: сразу «Загрузка…» (12.10.2026). */
+try {
+  if (sessionStorage.getItem("wtusa_admin_secret")) {
+    document.getElementById("gate").style.display = "none";
+    document.getElementById("boot").style.display = "";
+  }
+} catch (e) {}
+</script>
 
 <div class="app" id="main" style="display:none">
 <header class="top">
@@ -86,6 +115,18 @@
 </div>
 <button class="btn secondary" id="refresh-btn" style="margin-bottom:10px">Обновить список</button>
 <div class="deal-list" id="deal-list"></div>
+</div>
+
+<div class="card">
+<h2>Текст сообщения в WhatsApp</h2>
+<div class="field">
+<label for="wa-template">Шаблон</label>
+<select id="wa-template">
+<option value="first">Первое сообщение — знакомство с приложением</option>
+<option value="reminder">Напоминание — ссылку уже присылали, студент не подключился</option>
+</select>
+</div>
+<div class="sub">Перед отправкой полный текст показывается в окне подтверждения.</div>
 </div>
 
 <div class="card">
@@ -134,6 +175,39 @@ function esc(value) {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * СООБЩЕНИЯ НА СТРАНИЦЕ ВМЕСТО alert (12.10.2026).
+ *
+ * Что ломалось. Итог фоновых действий (ответ сервера после отправки, сбой
+ * отметки, сбой загрузки) показывался окном alert: оно останавливает страницу,
+ * пока его не закроют, а в кабинете (страница во фрейме) всплывало поверх
+ * соседней вкладки. Пока окно висело, остальные ответы ждали — по одной
+ * неудачной отметке посещаемости приходилось закрывать по окну на строку.
+ *
+ * Теперь — плашка вверху страницы: не мешает работать, остаётся, пока её не
+ * закроют (✕); успешные сообщения исчезают сами через 10 секунд. Окна
+ * confirm остались только прямо перед отправкой сообщений студентам.
+ */
+function сообщение(текст, вид) {
+  const box = document.getElementById("toasts");
+  if (!box) return;
+  const el = document.createElement("div");
+  el.className = "toast" + (вид ? " " + вид : "");
+  el.setAttribute("role", вид === "err" ? "alert" : "status");
+  const t = document.createElement("div");
+  t.textContent = текст;
+  const x = document.createElement("button");
+  x.type = "button";
+  x.className = "toast-x";
+  x.title = "Закрыть";
+  x.textContent = "✕";
+  x.addEventListener("click", () => el.remove());
+  el.append(t, x);
+  box.appendChild(el);
+  while (box.children.length > 4) box.firstElementChild.remove();
+  if (вид === "ok") setTimeout(() => el.remove(), 10000);
+}
+
 import { BACKEND_URL } from "./js/services/config.js";
 
 /**
@@ -158,23 +232,41 @@ const mainEl = document.getElementById("main");
 
 let deals = []; // { dealId, name }
 
+// Хранилище браузера запрещено — код живёт в памяти страницы до перезагрузки (12.10.2026).
+let секретВПамяти = "";
 function secret() {
   // 05.10.2026: если в Chrome для сайта запрещены cookie и данные сайтов,
   // само обращение к sessionStorage бросает исключение — страница молча
   // переставала работать («Войти» ничего не делала).
   try {
-    return sessionStorage.getItem(SECRET_KEY) || "";
+    return sessionStorage.getItem(SECRET_KEY) || секретВПамяти;
   } catch (e) {
-    return "";
+    return секретВПамяти;
   }
 }
 
-async function adminGet(action, extraParams) {
+// ТАЙМ-АУТ ЗАГРУЗКИ (12.10.2026). Что ломалось: «холодный» сервер Google или
+// зависшее соединение держали страницу на «Загрузка…» бесконечно, без единого
+// слова. Теперь чтение списков обрывается через 45 секунд, и на странице
+// появляется ошибка с кнопкой «Повторить». Только для чтения: запросы, которые
+// что-то отправляют, не обрываем — иначе результат стал бы неизвестным.
+const ТАЙМАУТ_ЗАГРУЗКИ_МС = 45000;
+
+async function adminGet(action, extraParams, timeoutMs) {
   const params = new URLSearchParams({ action, secret: secret(), ...(extraParams || {}) });
-  const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, { method: "GET" });
-  const json = await resp.json();
-  if (json.error) throw new Error(json.error);
-  return json;
+  const ctrl = timeoutMs && typeof AbortController === "function" ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+  try {
+    const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, { method: "GET", signal: ctrl ? ctrl.signal : undefined });
+    const json = await resp.json();
+    if (json.error) throw new Error(json.error);
+    return json;
+  } catch (err) {
+    if (ctrl && ctrl.signal.aborted) throw new Error("TIMEOUT");
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function adminPost(action, payload) {
@@ -197,6 +289,7 @@ async function adminPost(action, payload) {
 function понятнаяОшибка(err) {
   const m = String((err && err.message) || err || "");
   if (/bad secret/i.test(m)) return "неверный секретный код";
+  if (m === "TIMEOUT") return "сервер не ответил за 45 секунд";
   if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "нет связи с сервером";
   if (/Unexpected token|not valid JSON|Unexpected end of/i.test(m)) return "сервер ответил не по формату (временный сбой на стороне Google)";
   if (/^unknown action/i.test(m)) return "сервер не распознал запрос (" + m + ")";
@@ -215,8 +308,8 @@ function понятнаяОшибка(err) {
  * повторный клик по той же сделке (в том числе пока первая отправка ещё
  * идёт, или после F5) давал чистую карточку и то же самое подтверждение.
  *
- * Теперь: по каждой сделке запоминается состояние отправки (в sessionStorage,
- * переживает F5): «отправляется» → «отправлено» либо «результат неизвестен».
+ * Теперь: по каждой сделке запоминается состояние отправки (с 12.10.2026 —
+ * в localStorage на 72 часа, см. ниже): «отправляется» → «отправлено» либо «результат неизвестен».
  * Оно видно в списке, в карточке и в окне подтверждения. После сбоя с
  * неизвестным результатом кнопка минуту недоступна, а текст говорит главное:
  * сообщение могло уйти — проверьте чат в amoCRM.
@@ -224,13 +317,49 @@ function понятнаяОшибка(err) {
 const JOURNAL_KEY = "wtusa_admin_wa_journal";
 const идётОтправка = new Set(); // сделки, запрос по которым ещё не вернулся (в этой загрузке страницы)
 
+/**
+ * ЖУРНАЛ — В localStorage НА 72 ЧАСА (12.10.2026).
+ *
+ * Что ломалось. Журнал жил в sessionStorage — только в этой вкладке. Закрыл
+ * вкладку, открыл кабинет в соседней или на другой день — отметки «отправлено»
+ * и «результат неизвестен» пропадали, и та же сделка снова выглядела чистой:
+ * второе сообщение клиенту уходило по обычному подтверждению.
+ *
+ * Теперь журнал в localStorage: общий для всех вкладок этого браузера и
+ * переживает закрытие. Записи старше 72 часов (столько живёт ссылка привязки)
+ * выбрасываются при чтении. Пароль по-прежнему в sessionStorage — в журнале
+ * только номер сделки, состояние, время и номер запроса. Любая ошибка
+ * хранилища глотается: журнал — подстраховка, а не условие работы страницы.
+ */
+const JOURNAL_TTL_MS = 72 * 3600 * 1000;
+
 function журналОтправок() {
+  let j = {};
   try {
-    return JSON.parse(sessionStorage.getItem(JOURNAL_KEY) || "{}") || {};
+    j = JSON.parse(localStorage.getItem(JOURNAL_KEY) || "{}") || {};
   } catch (e) {
-    return {};
+    j = {};
   }
+  const сейчас = Date.now();
+  Object.keys(j).forEach((k) => {
+    if (!j[k] || !(сейчас - Number(j[k].at || 0) < JOURNAL_TTL_MS)) delete j[k];
+  });
+  return j;
 }
+
+// Перенос записей, сделанных до 12.10.2026 в sessionStorage этой вкладки.
+(function перенестиСтарыйЖурнал() {
+  try {
+    const старый = JSON.parse(sessionStorage.getItem(JOURNAL_KEY) || "null");
+    if (!старый) return;
+    const j = журналОтправок();
+    Object.keys(старый).forEach((k) => {
+      if (старый[k] && (!j[k] || Number(j[k].at || 0) < Number(старый[k].at || 0))) j[k] = старый[k];
+    });
+    localStorage.setItem(JOURNAL_KEY, JSON.stringify(j));
+    sessionStorage.removeItem(JOURNAL_KEY);
+  } catch (e) {}
+})();
 
 // запись: "sending" | "sent" | "unknown" | готовый объект из журнала | null (стереть)
 function записатьОтправку(dealId, запись) {
@@ -238,7 +367,7 @@ function записатьОтправку(dealId, запись) {
   if (!запись) delete j[String(dealId)];
   else j[String(dealId)] = typeof запись === "string" ? { state: запись, at: Date.now() } : запись;
   try {
-    sessionStorage.setItem(JOURNAL_KEY, JSON.stringify(j));
+    localStorage.setItem(JOURNAL_KEY, JSON.stringify(j));
   } catch (e) {
     // журнал — подстраховка, а не условие работы страницы
   }
@@ -258,6 +387,11 @@ function отметкаОтправки(dealId) {
 function обновитьСписок() {
   renderDeals(document.getElementById("search-deals").value);
 }
+
+// Журнал изменился в соседней вкладке (12.10.2026) — обновляем отметки в списке.
+window.addEventListener("storage", (e) => {
+  if (e.key === JOURNAL_KEY && mainLoaded) обновитьСписок();
+});
 
 function renderDeals(filterText) {
   const listEl = document.getElementById("deal-list");
@@ -289,21 +423,51 @@ function renderDeals(filterText) {
   });
 }
 
-async function loadDeals() {
-  const listEl = document.getElementById("deal-list");
-  listEl.innerHTML = `<div class="sub" style="padding:12px">Загрузка…</div>`;
-  try {
-    deals = await adminGet("adminListUnlinkedDeals");
-    renderDeals(document.getElementById("search-deals").value);
-  } catch (err) {
-    listEl.innerHTML = `<div class="sub" style="padding:12px;color:var(--danger)">Не удалось загрузить список: ${esc(понятнаяОшибка(err))}</div>`;
-  }
+// «Обновить список» (12.10.2026): двойной щелчок больше не шлёт два запроса,
+// зависший запрос обрывается по тому же тайм-ауту, что и первая загрузка.
+let обновлениеСписка = null;
+function loadDeals() {
+  if (обновлениеСписка) return обновлениеСписка;
+  обновлениеСписка = (async () => {
+    const listEl = document.getElementById("deal-list");
+    listEl.innerHTML = `<div class="sub" style="padding:12px">Загрузка…</div>`;
+    try {
+      deals = await adminGet("adminListUnlinkedDeals", null, ТАЙМАУТ_ЗАГРУЗКИ_МС);
+      renderDeals(document.getElementById("search-deals").value);
+    } catch (err) {
+      listEl.innerHTML = `<div class="sub" style="padding:12px;color:var(--danger)">Не удалось загрузить список: ${esc(понятнаяОшибка(err))}</div>`;
+    }
+  })().finally(() => { обновлениеСписка = null; });
+  return обновлениеСписка;
 }
 
 // ТЕКСТ ПРИГЛАШЕНИЯ (23.09.2026, формулировка владельца) — тот же, что в
 // бэкенде (autoLinkMessage_ в Api.gs) для Salesbot. Без имени: имена в
 // amoCRM вбиты вручную, с ошибками. Параметр name оставлен для совместимости.
+// ШАБЛОН «НАПОМИНАНИЕ» (09.10.2026). Для студентов, которым ссылку уже
+// присылали, но они не подключились: повтор с упором на статус, информацию и
+// запись на мероприятия. Выбор шаблона — в карточке «Текст сообщения».
+function waReminderText(link) {
+  return [
+    "Здравствуйте! Это ABC Universe 👋",
+    "",
+    "Напоминаем: мы присылали вам ссылку на приложение Work & Travel USA в Telegram, но вы ещё не подключились.",
+    "",
+    "В приложении:",
+    "• ваш актуальный статус по программе и следующий шаг;",
+    "• оплаты, документы и дедлайны;",
+    "• запись на мероприятия. Уже завтра, 10 октября, Брифинг 1 в офисе ABC Universe в 15:00, 16:00 или 17:00. Выбрать удобное время можно прямо в приложении.",
+    "",
+    "Подключение за 10 секунд, откройте ссылку в Telegram:",
+    link,
+    "",
+    "Если что-то не получается, напишите своему координатору.",
+  ].join("\n");
+}
+
 function waMessageText(link, name) {
+  const выбор = document.getElementById("wa-template");
+  if (выбор && выбор.value === "reminder") return waReminderText(link);
   return [
     "Здравствуйте! На связи ABC Universe 👋",
     "",
@@ -371,8 +535,26 @@ async function createLinkFor(dealId, name, неИзСписка) {
     // выше (опечатка, ID из другой вкладки amoCRM, сделка другой воронки, уже
     // подключённая сделка), страница показывала обычную карточку с кнопкой
     // отправки, и единственной подсказкой оставался номер телефона.
-    const заметкаОСделке = неИзСписка
-      ? `<div class="sub" style="margin-bottom:8px;color:var(--danger);font-weight:700">Сделки #${esc(dealId)} нет в списке непривязанных выше: она совсем новая, уже подключена к приложению, закрыта или это сделка другого клиента. Перед отправкой сверьте номер телефона с карточкой этой сделки в amoCRM.</div>`
+    //
+    // «УЖЕ ПОДКЛЮЧЁН К ПРИЛОЖЕНИЮ» (12.10.2026). Что ломалось: длинное общее
+    // предупреждение перечисляло пять причин подряд, и главную — студент уже
+    // пользуется приложением, ссылка ему не нужна — координаторы пропускали.
+    // Закрытые сделки и сделки другой воронки сервер теперь отклоняет сам, так
+    // что сделка, которой нет в списке неподключённых, почти всегда уже
+    // подключена (реже — совсем новая и ещё не попала в список). Если сервер
+    // ответит alreadyLinked: true (будущая правка бэкенда) — говорим это прямо.
+    // Кнопка отправки остаётся (бывает, что студент сменил Telegram), но окно
+    // подтверждения начинается с этого предупреждения.
+    const ужеПодключён = res.alreadyLinked === true;
+    const заметкаОСделке = ужеПодключён
+      ? `<div class="sub" style="margin-bottom:8px;color:var(--danger);font-weight:700">Студент уже подключён к приложению (сделка #${esc(dealId)}). Ссылка ему не нужна — отправляйте, только если точно знаете зачем (например, он сменил Telegram).</div>`
+      : неИзСписка
+      ? `<div class="sub" style="margin-bottom:8px;color:var(--danger);font-weight:700">Похоже, студент уже подключён к приложению: сделки #${esc(dealId)} нет в списке неподключённых выше. Реже — сделка совсем новая и ещё не попала в список (нажмите «Обновить список»). Перед отправкой сверьте номер телефона с карточкой этой сделки в amoCRM.</div>`
+      : "";
+    const предупреждениеПодключён = ужеПодключён
+      ? "ВНИМАНИЕ: студент УЖЕ ПОДКЛЮЧЁН К ПРИЛОЖЕНИЮ — ссылка ему не нужна.\n\n"
+      : неИзСписка
+      ? "ВНИМАНИЕ: похоже, студент УЖЕ ПОДКЛЮЧЁН К ПРИЛОЖЕНИЮ — сделки нет в списке неподключённых" + (имяОтСервера ? "" : ", имя не проверено") + ". Сверьте номер с amoCRM.\n\n"
       : "";
     resultEl.innerHTML = `
       ${заметкаОСделке}
@@ -403,11 +585,10 @@ async function createLinkFor(dealId, name, неИзСписка) {
         // этом берётся из контакта сделки в amoCRM, а это часто телефон
         // родителя — координатор об этом не догадывался.
         const текст = waMessageText(res.link, name);
-        const кому = (name ? `${name} (сделка #${dealId})` : `сделка #${dealId}`) +
-          (неИзСписка ? (имяОтСервера ? " — её НЕТ В СПИСКЕ непривязанных: сверьте номер с amoCRM" : " — её НЕТ В СПИСКЕ, имя не проверено: сверьте номер с amoCRM") : "");
+        const кому = name ? `${name} (сделка #${dealId})` : `сделка #${dealId}`;
         const было = отметкаОтправки(dealId);
         if (было && было.state === "sending") {
-          alert("Сообщение для «" + кому + "» ещё отправляется — дождитесь ответа сервера (обычно до минуты). Второй раз отправлять не нужно.");
+          сообщение("Сообщение для «" + кому + "» ещё отправляется — дождитесь ответа сервера (обычно до минуты). Второй раз отправлять не нужно.", "warn");
           return;
         }
         const прежняяЗапись = журналОтправок()[String(dealId)] || null;
@@ -421,17 +602,28 @@ async function createLinkFor(dealId, name, неИзСписка) {
         const rid = повторНеизвестной
           ? прежняяЗапись.rid
           : "wa_" + String(dealId).replace(/[^A-Za-z0-9]/g, "") + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+        // КОРОТКОЕ ОКНО ПОДТВЕРЖДЕНИЯ (12.10.2026). На телефоне (390 px) окно с
+        // полным текстом шаблона не помещалось: «Кому» и «Номер» были внизу, под
+        // всем сообщением, и до них надо было листать — а это главное, что надо
+        // проверить. Теперь «Кому» и «Номер» — первыми строками, за ними
+        // предупреждения, а текст показан началом (~300 знаков). Уходит текст
+        // целиком, как и раньше.
+        const ПРЕВЬЮ_ЗНАКОВ = 300;
+        const превью = текст.length > ПРЕВЬЮ_ЗНАКОВ
+          ? текст.slice(0, ПРЕВЬЮ_ЗНАКОВ).replace(/\s+\S*$/, "") + "… (показано начало; уйдёт полный текст, " + текст.length + " знаков)"
+          : текст;
         const ок = window.confirm(
+          "Отправить сообщение в WhatsApp?\n" +
+          "Кому: " + кому + "\n" +
+          "Номер: " + res.phone + "\n\n" +
+          предупреждениеПодключён +
           (было
             ? "ВНИМАНИЕ: по этой сделке " + было.полно + ".\n" +
               (повторНеизвестной
                 ? "Сервер помнит ту отправку: если первое сообщение ушло, второе он не отправит. Но сначала всё же загляните в чат в amoCRM.\n\n"
                 : "Если продолжить, клиент получит ВТОРОЕ сообщение.\n\n")
             : "") +
-          "Отправить сообщение?\n\n" +
-          "Кому: " + кому + "\n" +
-          "Номер: " + res.phone + "\n\n" +
-          "Текст:\n" + текст + "\n\n" +
+          "Текст:\n" + превью + "\n\n" +
           "Отменить отправку после нажатия будет нельзя."
         );
         if (!ок) return;
@@ -441,13 +633,15 @@ async function createLinkFor(dealId, name, неИзСписка) {
         записатьОтправку(dealId, { state: "sending", at: Date.now(), rid });
         обновитьСписок();
         try {
-          const ответ = await adminPost("adminSendWhatsApp", { phone: res.phone, text: текст, requestId: rid });
+          // dealId (12.10.2026) — чтобы сервер мог записать отправку в карточку сделки
+          // и проверить, не подключён ли студент уже; старый сервер поле просто не читает.
+          const ответ = await adminPost("adminSendWhatsApp", { phone: res.phone, text: текст, requestId: rid, dealId: String(dealId) });
           записатьОтправку(dealId, { state: "sent", at: Date.now(), rid });
           waBtn.textContent = "Отправлено ✓";
           // Сервер узнал номер запроса: сообщение ушло ещё с первой попытки,
           // сейчас ничего не отправлялось.
           if (ответ && ответ.repeated) {
-            alert("Сообщение для «" + кому + "» было отправлено ещё при первой попытке — сервер это подтвердил. Второе сообщение клиенту НЕ отправлялось.");
+            сообщение("Сообщение для «" + кому + "» было отправлено ещё при первой попытке — сервер это подтвердил. Второе сообщение клиенту НЕ отправлялось.");
           }
         } catch (err) {
           const m = String((err && err.message) || "");
@@ -467,12 +661,12 @@ async function createLinkFor(dealId, name, неИзСписка) {
               waBtn.disabled = false;
               waBtn.textContent = "Отправить ещё раз";
             }, 60000);
-            alert("Первая отправка для «" + кому + "» ещё выполняется на сервере. Второе сообщение не отправлено. Подождите минуту и проверьте чат с номером " + res.phone + " в amoCRM.");
+            сообщение("Первая отправка для «" + кому + "» ещё выполняется на сервере. Второе сообщение не отправлено. Подождите минуту и проверьте чат с номером " + res.phone + " в amoCRM.", "warn");
           } else if (точноНеУшло) {
             записатьОтправку(dealId, прежняяЗапись);
             waBtn.disabled = false;
             waBtn.textContent = "Отправить в WhatsApp";
-            alert("Сообщение для «" + кому + "» НЕ отправлено: " + понятнаяОшибка(err) + ".\n\nСсылку можно скопировать вручную ниже.");
+            сообщение("Сообщение для «" + кому + "» НЕ отправлено: " + понятнаяОшибка(err) + ".\nСсылку можно скопировать вручную в карточке «Ссылка для…».", "err");
           } else {
             записатьОтправку(dealId, { state: "unknown", at: Date.now(), rid });
             waBtn.textContent = "Проверьте чат в amoCRM";
@@ -480,11 +674,12 @@ async function createLinkFor(dealId, name, неИзСписка) {
               waBtn.disabled = false;
               waBtn.textContent = "Отправить ещё раз";
             }, 60000);
-            alert(
-              "Сервер не подтвердил отправку для «" + кому + "» (" + понятнаяОшибка(err) + ").\n\n" +
+            сообщение(
+              "Сервер не подтвердил отправку для «" + кому + "» (" + понятнаяОшибка(err) + ").\n" +
               "Сообщение МОГЛО уйти клиенту. Не отправляйте повторно сразу: откройте чат с номером " + res.phone +
               " в amoCRM и проверьте, пришло ли оно. Если сообщения там нет — через минуту кнопка снова станет активной. " +
-              "При повторном нажатии сервер сверит номер запроса: если первое сообщение всё-таки ушло, второе он не отправит."
+              "При повторном нажатии сервер сверит номер запроса: если первое сообщение всё-таки ушло, второе он не отправит.",
+              "err"
             );
           }
         } finally {
@@ -503,12 +698,57 @@ async function createLinkFor(dealId, name, неИзСписка) {
 let entering = false; // guards against a double-click/double-Enter firing tryEnter() twice
 let mainLoaded = false; // guards against loadMain() ever running (and re-binding listeners) twice
 
+/**
+ * ОДНА ЗАГРУЗКА ВМЕСТО ДВУХ И НИКАКОГО ЛОЖНОГО ВХОДА (12.10.2026).
+ *
+ * Что ломалось. При сохранённом коде страница сама начинала загрузку, но всё
+ * это время (на холодном сервере Google — до минуты) на экране оставалась форма
+ * входа. Координатор думал, что его «выкинуло», вводил код ещё раз — и уходил
+ * второй такой же запрос; флаг mainLoaded ставился только в конце, поэтому оба
+ * доходили до привязки обработчиков. Сбой загрузки показывался блокирующим
+ * окном alert, а зависшая загрузка не кончалась никогда.
+ *
+ * Теперь: одна общая загрузка (повторный вызов получает тот же промис); пока
+ * она идёт, вместо формы входа — «Загрузка…»; через 45 секунд — ошибка на
+ * странице и кнопка «Повторить». Неверный код возвращает к форме входа с
+ * пояснением под ней. Обработчики привязываются один раз — после первой
+ * успешной загрузки.
+ */
+let загрузка = null;
+
+function показатьЭкран(какой) {
+  gateEl.style.display = какой === "gate" ? "" : "none";
+  document.getElementById("boot").style.display = какой === "boot" ? "" : "none";
+  mainEl.style.display = какой === "main" ? "block" : "none";
+}
+
+function показатьЗагрузку() {
+  показатьЭкран("boot");
+  const t = document.getElementById("boot-text");
+  t.className = "sub";
+  t.textContent = "Загрузка… На холодном сервере это может занять до минуты.";
+  document.getElementById("boot-retry").style.display = "none";
+}
+
+function показатьСбойЗагрузки(текст) {
+  показатьЭкран("boot");
+  const t = document.getElementById("boot-text");
+  t.className = "sub err";
+  t.textContent = текст;
+  document.getElementById("boot-retry").style.display = "";
+}
+
+function показатьВход(ошибка) {
+  показатьЭкран("gate");
+  document.getElementById("gate-err").textContent = ошибка || "";
+}
+
 async function init() {
   const gateSubmit = document.getElementById("gate-submit");
   const secretInput = document.getElementById("secret-input");
 
   async function tryEnter() {
-    if (entering) return;
+    if (entering || загрузка) return;
     const value = secretInput.value.trim();
     if (!value) return;
     entering = true;
@@ -517,9 +757,12 @@ async function init() {
       try {
         sessionStorage.setItem(SECRET_KEY, value);
       } catch (e) {
-        alert("Браузер не даёт сохранить код входа: в настройках Chrome для этого сайта запрещены cookie и данные сайтов. Разрешите их и обновите страницу.");
-        return;
+        // 12.10.2026: вместо окна alert — плашка, а код держим в памяти страницы:
+        // работать можно, просто после обновления код придётся ввести снова.
+        секретВПамяти = value;
+        сообщение("Браузер не даёт сохранить код входа: в настройках Chrome для этого сайта запрещены cookie и данные сайтов. Страница работает, но после обновления код придётся ввести снова.", "warn");
       }
+      document.getElementById("gate-err").textContent = "";
       await loadMain();
     } finally {
       entering = false;
@@ -530,20 +773,28 @@ async function init() {
   secretInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") tryEnter();
   });
+  document.getElementById("boot-retry").addEventListener("click", () => loadMain());
 
   if (secret()) {
     await loadMain();
+  } else {
+    показатьЭкран("gate");
   }
 }
 
-async function loadMain() {
+function loadMain() {
   if (mainLoaded) {
-    gateEl.style.display = "none";
-    mainEl.style.display = "block";
-    return;
+    показатьЭкран("main");
+    return Promise.resolve();
   }
+  if (!загрузка) загрузка = первичнаяЗагрузка().finally(() => { загрузка = null; });
+  return загрузка;
+}
+
+async function первичнаяЗагрузка() {
+  показатьЗагрузку();
   try {
-    deals = await adminGet("adminListUnlinkedDeals");
+    deals = await adminGet("adminListUnlinkedDeals", null, ТАЙМАУТ_ЗАГРУЗКИ_МС);
   } catch (err) {
     // КОД СТИРАЕМ ТОЛЬКО ЕСЛИ ОН НЕВЕРНЫЙ (05.10.2026). Раньше любой сбой первой
     // загрузки (нет связи, страница ошибки Google) выглядел как «Не удалось
@@ -553,18 +804,22 @@ async function loadMain() {
     const неверныйКод = /bad secret/i.test(String((err && err.message) || ""));
     if (неверныйКод) {
       try { sessionStorage.removeItem(SECRET_KEY); } catch (e) {}
-      alert("Не удалось войти: неверный секретный код.");
-      // Внутри кабинета возвращаем к общему экрану входа, а не к своему.
-      if (window.parent !== window) { try { window.parent.location.reload(); } catch (e) {} }
+      секретВПамяти = "";
+      // Внутри кабинета возвращаем к общему экрану входа, а не к своему;
+      // причину кабинет покажет под своей формой входа.
+      if (window.parent !== window) {
+        try { sessionStorage.setItem("wtusa_admin_gate_msg", "Неверный секретный код — введите его ещё раз."); } catch (e) {}
+        try { window.parent.location.reload(); } catch (e) {}
+      }
+      показатьВход("Неверный секретный код — введите его ещё раз.");
     } else {
-      alert("Не удалось загрузить данные: " + понятнаяОшибка(err) + ".\n\nКод входа сохранён — обновите страницу через минуту.");
+      показатьСбойЗагрузки("Не удалось загрузить данные: " + понятнаяОшибка(err) + ". Код входа сохранён — нажмите «Повторить».");
     }
     return;
   }
 
   mainLoaded = true;
-  gateEl.style.display = "none";
-  mainEl.style.display = "block";
+  показатьЭкран("main");
 
   renderDeals("");
 

@@ -93,10 +93,27 @@
 .att-seg button.on-no{background:#fdebec;color:var(--danger)}
 .att-seg button:disabled{opacity:.5;cursor:wait}
 .att-summary{font-size:13px;color:var(--muted);margin:6px 0 12px}
+/* ЭКРАН «ЗАГРУЗКА…» ВМЕСТО ЛОЖНОГО ВХОДА (12.10.2026), см. loadMain. */
+#boot{max-width:340px;margin:80px auto;padding:0 16px}
+#boot-text.err{color:var(--danger)}
+.gate-err{color:var(--danger);font-size:13px;margin-top:10px}
 @media (max-width:420px){.att-row{grid-template-columns:1fr}.att-seg{justify-self:start}}
+/* Поиск и «отметить всех записавшихся» во вкладке «Посещаемость» (12.10.2026). */
+.att-bulk{border:1px dashed var(--line);border-radius:10px;padding:10px 12px;margin:0 0 12px}
+.att-bulk .btn{width:auto;padding:8px 14px}
+.att-err{font-size:12px;color:var(--danger);font-weight:700;margin-top:3px}
+#att-bulk-status.err{color:var(--danger)}
+/* СООБЩЕНИЯ НА СТРАНИЦЕ ВМЕСТО ОКОН alert (12.10.2026), см. сообщение(). */
+#toasts{position:fixed;top:10px;left:50%;transform:translateX(-50%);width:min(620px,calc(100% - 20px));z-index:50;display:grid;gap:8px;pointer-events:none}
+.toast{pointer-events:auto;display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid var(--line);border-left:4px solid var(--navy);border-radius:10px;padding:10px 12px;box-shadow:0 6px 24px rgba(15,35,68,.16);font-size:14px;line-height:1.4;white-space:pre-line;overflow-wrap:anywhere}
+.toast.err{border-left-color:var(--danger)}
+.toast.ok{border-left-color:var(--ok)}
+.toast.warn{border-left-color:var(--warn)}
+.toast-x{margin-left:auto;flex:none;background:none;border:0;font-size:16px;line-height:1;padding:2px 4px;cursor:pointer;color:var(--muted)}
 </style>
 </head>
 <body>
+<div id="toasts" aria-live="polite"></div>
 
 <div id="gate">
   <div class="card">
@@ -107,8 +124,25 @@
     </div>
     <button class="btn" id="gate-submit">Войти</button>
     <div class="sub" style="margin-top:10px">Код узнайте у того, кто настраивал приложение — он же используется для ссылок привязки участников.</div>
+    <div class="gate-err" id="gate-err" role="alert"></div>
   </div>
 </div>
+
+<div id="boot" style="display:none">
+  <div class="card">
+    <div class="sub" id="boot-text" role="status">Загрузка…</div>
+    <button class="btn" id="boot-retry" type="button" style="display:none;margin-top:12px">Повторить</button>
+  </div>
+</div>
+<script>
+/* Код уже сохранён — экран входа не показываем даже на миг: сразу «Загрузка…» (12.10.2026). */
+try {
+  if (sessionStorage.getItem("wtusa_admin_secret")) {
+    document.getElementById("gate").style.display = "none";
+    document.getElementById("boot").style.display = "";
+  }
+} catch (e) {}
+</script>
 
 <div class="app" id="main" style="display:none">
   <header class="top">
@@ -126,6 +160,18 @@
       <div class="field">
         <label for="att-event">Мероприятие</label>
         <select id="att-event"></select>
+      </div>
+      <div class="field">
+        <label for="att-search">Поиск по имени</label>
+        <input id="att-search" placeholder="Имя студента…" autocomplete="off" />
+      </div>
+      <div class="att-bulk" id="att-bulk" style="display:none">
+        <div class="field" style="margin-bottom:8px">
+          <label for="att-slot">Время, на которое записались</label>
+          <select id="att-slot"></select>
+        </div>
+        <button type="button" class="btn secondary" id="att-bulk-btn">Отметить всех записавшихся на это время как «Был»</button>
+        <div class="sub" id="att-bulk-status" role="status" style="margin-top:6px"></div>
       </div>
       <div class="att-summary" id="att-summary"></div>
       <div id="att-list"></div>
@@ -212,6 +258,39 @@ function esc(value) {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * СООБЩЕНИЯ НА СТРАНИЦЕ ВМЕСТО alert (12.10.2026).
+ *
+ * Что ломалось. Итог фоновых действий (ответ сервера после отправки, сбой
+ * отметки, сбой загрузки) показывался окном alert: оно останавливает страницу,
+ * пока его не закроют, а в кабинете (страница во фрейме) всплывало поверх
+ * соседней вкладки. Пока окно висело, остальные ответы ждали — по одной
+ * неудачной отметке посещаемости приходилось закрывать по окну на строку.
+ *
+ * Теперь — плашка вверху страницы: не мешает работать, остаётся, пока её не
+ * закроют (✕); успешные сообщения исчезают сами через 10 секунд. Окна
+ * confirm остались только прямо перед отправкой сообщений студентам.
+ */
+function сообщение(текст, вид) {
+  const box = document.getElementById("toasts");
+  if (!box) return;
+  const el = document.createElement("div");
+  el.className = "toast" + (вид ? " " + вид : "");
+  el.setAttribute("role", вид === "err" ? "alert" : "status");
+  const t = document.createElement("div");
+  t.textContent = текст;
+  const x = document.createElement("button");
+  x.type = "button";
+  x.className = "toast-x";
+  x.title = "Закрыть";
+  x.textContent = "✕";
+  x.addEventListener("click", () => el.remove());
+  el.append(t, x);
+  box.appendChild(el);
+  while (box.children.length > 4) box.firstElementChild.remove();
+  if (вид === "ok") setTimeout(() => el.remove(), 10000);
+}
+
   import { BACKEND_URL } from "./js/services/config.js";
   import { STAGES } from "./js/config/roadmap.config.js";
   import { BRIEFING_ROSTER } from "./js/config/briefingRoster.config.js";
@@ -239,23 +318,41 @@ const SECRET_KEY = "wtusa_admin_secret";
   let people = []; // { telegramId, name, stage }
   let slotCount = 0;
 
+  // Хранилище браузера запрещено — код живёт в памяти страницы до перезагрузки (12.10.2026).
+  let секретВПамяти = "";
   function secret() {
     // 05.10.2026: если в Chrome для сайта запрещены cookie и данные сайтов,
     // само обращение к sessionStorage бросает исключение — страница молча
     // переставала работать («Войти» ничего не делала).
     try {
-      return sessionStorage.getItem(SECRET_KEY) || "";
+      return sessionStorage.getItem(SECRET_KEY) || секретВПамяти;
     } catch (e) {
-      return "";
+      return секретВПамяти;
     }
   }
 
-  async function adminGet(action, extraParams) {
+  // ТАЙМ-АУТ ЗАГРУЗКИ (12.10.2026). Что ломалось: «холодный» сервер Google или
+  // зависшее соединение держали страницу на «Загрузка…» бесконечно. Теперь
+  // чтение списков обрывается через 45 секунд — ошибка на странице и кнопка
+  // «Повторить». Только для чтения: отправку приглашений и отметки не обрываем,
+  // иначе их результат стал бы неизвестным.
+  const ТАЙМАУТ_ЗАГРУЗКИ_МС = 45000;
+
+  async function adminGet(action, extraParams, timeoutMs) {
     const params = new URLSearchParams({ action, secret: secret(), ...(extraParams || {}) });
-    const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, { method: "GET" });
-    const json = await resp.json();
-    if (json.error) throw new Error(json.error);
-    return json;
+    const ctrl = timeoutMs && typeof AbortController === "function" ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, { method: "GET", signal: ctrl ? ctrl.signal : undefined });
+      const json = await resp.json();
+      if (json.error) throw new Error(json.error);
+      return json;
+    } catch (err) {
+      if (ctrl && ctrl.signal.aborted) throw new Error("TIMEOUT");
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   async function adminPost(action, payload) {
@@ -279,6 +376,7 @@ const SECRET_KEY = "wtusa_admin_secret";
   function понятнаяОшибка(err) {
     const m = String((err && err.message) || err || "");
     if (/bad secret/i.test(m)) return "неверный секретный код";
+    if (m === "TIMEOUT") return "сервер не ответил за 45 секунд";
     if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "нет связи с сервером";
     if (/Unexpected token|not valid JSON|Unexpected end of/i.test(m)) return "сервер ответил не по формату (временный сбой на стороне Google)";
     if (/^unknown action/i.test(m)) return "сервер не распознал запрос (" + m + ")";
@@ -410,15 +508,64 @@ const SECRET_KEY = "wtusa_admin_secret";
     });
   }
 
+  // См. «НОМЕР ЗАПРОСА РАССЫЛКИ» в обработчике «Отправить приглашения».
+  let рассылкаБезОтвета = null; // { rid, ключ } — последняя рассылка с неизвестным результатом
+  let ждатьПослеНеизвестной = false; // кнопка выключена на минуту после неизвестного результата
+
   let entering = false; // guards against a double-click/double-Enter firing tryEnter() twice
   let mainLoaded = false; // guards against loadMain() ever running (and re-binding listeners) twice
+
+  /**
+   * ОДНА ЗАГРУЗКА ВМЕСТО ДВУХ И НИКАКОГО ЛОЖНОГО ВХОДА (12.10.2026).
+   *
+   * Что ломалось. При сохранённом коде страница сама начинала загрузку, но всё
+   * это время (на холодном сервере Google — до минуты) на экране оставалась форма
+   * входа. Координатор вводил код ещё раз — уходил второй такой же запрос, и оба
+   * доходили до привязки обработчиков: каждая кнопка формы срабатывала дважды
+   * (две рассылки по одному нажатию «Отправить приглашения»). Сбой загрузки
+   * показывался блокирующим окном alert, а зависшая загрузка не кончалась никогда.
+   *
+   * Теперь: одна общая загрузка (повторный вызов получает тот же промис); пока
+   * она идёт, вместо формы входа — «Загрузка…»; через 45 секунд — ошибка на
+   * странице и кнопка «Повторить». Неверный код возвращает к форме входа с
+   * пояснением под ней. Обработчики привязываются один раз — после первой
+   * успешной загрузки.
+   */
+  let загрузка = null;
+
+  function показатьЭкран(какой) {
+    gateEl.style.display = какой === "gate" ? "" : "none";
+    document.getElementById("boot").style.display = какой === "boot" ? "" : "none";
+    mainEl.style.display = какой === "main" ? "block" : "none";
+  }
+
+  function показатьЗагрузку() {
+    показатьЭкран("boot");
+    const t = document.getElementById("boot-text");
+    t.className = "sub";
+    t.textContent = "Загрузка… На холодном сервере это может занять до минуты.";
+    document.getElementById("boot-retry").style.display = "none";
+  }
+
+  function показатьСбойЗагрузки(текст) {
+    показатьЭкран("boot");
+    const t = document.getElementById("boot-text");
+    t.className = "sub err";
+    t.textContent = текст;
+    document.getElementById("boot-retry").style.display = "";
+  }
+
+  function показатьВход(ошибка) {
+    показатьЭкран("gate");
+    document.getElementById("gate-err").textContent = ошибка || "";
+  }
 
   async function init() {
     const gateSubmit = document.getElementById("gate-submit");
     const secretInput = document.getElementById("secret-input");
 
     async function tryEnter() {
-      if (entering) return;
+      if (entering || загрузка) return;
       const value = secretInput.value.trim();
       if (!value) return;
       entering = true;
@@ -427,9 +574,12 @@ const SECRET_KEY = "wtusa_admin_secret";
         try {
           sessionStorage.setItem(SECRET_KEY, value);
         } catch (e) {
-          alert("Браузер не даёт сохранить код входа: в настройках Chrome для этого сайта запрещены cookie и данные сайтов. Разрешите их и обновите страницу.");
-          return;
+          // 12.10.2026: вместо окна alert — плашка, а код держим в памяти страницы:
+          // работать можно, просто после обновления код придётся ввести снова.
+          секретВПамяти = value;
+          сообщение("Браузер не даёт сохранить код входа: в настройках Chrome для этого сайта запрещены cookie и данные сайтов. Страница работает, но после обновления код придётся ввести снова.", "warn");
         }
+        document.getElementById("gate-err").textContent = "";
         await loadMain();
       } finally {
         entering = false;
@@ -440,18 +590,29 @@ const SECRET_KEY = "wtusa_admin_secret";
     secretInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") tryEnter();
     });
+    document.getElementById("boot-retry").addEventListener("click", () => loadMain());
 
     if (secret()) {
       await loadMain();
+    } else {
+      показатьЭкран("gate");
     }
   }
 
-  async function loadMain() {
-    if (mainLoaded) return;
+  function loadMain() {
+    if (mainLoaded) {
+      показатьЭкран("main");
+      return Promise.resolve();
+    }
+    if (!загрузка) загрузка = первичнаяЗагрузка().finally(() => { загрузка = null; });
+    return загрузка;
+  }
 
+  async function первичнаяЗагрузка() {
     const resultEl = document.getElementById("result");
+    показатьЗагрузку();
     try {
-      people = await adminGet("adminListParticipants");
+      people = await adminGet("adminListParticipants", null, ТАЙМАУТ_ЗАГРУЗКИ_МС);
     } catch (err) {
       // КОД СТИРАЕМ ТОЛЬКО ЕСЛИ ОН НЕВЕРНЫЙ (05.10.2026). Раньше любой сбой первой
       // загрузки (нет связи, страница ошибки Google) выглядел как «Не удалось
@@ -461,18 +622,22 @@ const SECRET_KEY = "wtusa_admin_secret";
       const неверныйКод = /bad secret/i.test(String((err && err.message) || ""));
       if (неверныйКод) {
         try { sessionStorage.removeItem(SECRET_KEY); } catch (e) {}
-        alert("Не удалось войти: неверный секретный код.");
-        // Внутри кабинета возвращаем к общему экрану входа, а не к своему.
-        if (window.parent !== window) { try { window.parent.location.reload(); } catch (e) {} }
+        секретВПамяти = "";
+        // Внутри кабинета возвращаем к общему экрану входа, а не к своему;
+        // причину кабинет покажет под своей формой входа.
+        if (window.parent !== window) {
+          try { sessionStorage.setItem("wtusa_admin_gate_msg", "Неверный секретный код — введите его ещё раз."); } catch (e) {}
+          try { window.parent.location.reload(); } catch (e) {}
+        }
+        показатьВход("Неверный секретный код — введите его ещё раз.");
       } else {
-        alert("Не удалось загрузить данные: " + понятнаяОшибка(err) + ".\n\nКод входа сохранён — обновите страницу через минуту.");
+        показатьСбойЗагрузки("Не удалось загрузить данные: " + понятнаяОшибка(err) + ". Код входа сохранён — нажмите «Повторить».");
       }
       return;
     }
 
     mainLoaded = true;
-    gateEl.style.display = "none";
-    mainEl.style.display = "block";
+    показатьЭкран("main");
 
     addSlotRow();
     renderPeople("");
@@ -562,6 +727,22 @@ const SECRET_KEY = "wtusa_admin_secret";
       // в DOM отсутствуют, и раньше они молча выпадали из рассылки.
       const telegramIds = Array.from(выбранные);
 
+      // НОМЕР ЗАПРОСА РАССЫЛКИ (12.10.2026). Что ломалось: после обрыва связи или
+      // страницы ошибки Google вместо ответа страница предлагала «отправьте форму
+      // ещё раз» и сразу включала кнопку — координатор не знал, ушла ли рассылка,
+      // и где это проверить. Теперь у каждого нажатия свой номер запроса
+      // (requestId); повтор той же самой формы после неизвестного результата идёт
+      // с ТЕМ ЖЕ номером, чтобы сервер мог узнать повтор (сервер может номер пока
+      // не учитывать — тогда спасает прежняя защита: второе мероприятие с тем же
+      // названием и датой не создаётся, уже приглашённые пропускаются). После
+      // неизвестного результата кнопка минуту недоступна, а текст говорит, где
+      // проверить: вкладка «Посещаемость».
+      const ключФормы = JSON.stringify([title, description, location, slots, telegramIds.slice().sort(), roadmapStageId, briefingKey]);
+      const повторНеизвестной = !!(рассылкаБезОтвета && рассылкаБезОтвета.ключ === ключФормы);
+      const requestId = повторНеизвестной
+        ? рассылкаБезОтвета.rid
+        : "ev_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+
       // ПОДТВЕРЖДЕНИЕ ПЕРЕД МАССОВОЙ РАССЫЛКОЙ (02.09.2026). Раньше рассылка
       // на десятки человек уходила по одному клику, без перечисления
       // получателей и без показа того, что именно им придёт. Отменить после
@@ -574,6 +755,9 @@ const SECRET_KEY = "wtusa_admin_secret";
           ? именаВыбранных.slice(0, 12).join(", ") + " и ещё " + (именаВыбранных.length - 12)
           : именаВыбранных.join(", ");
       const подтверждено = window.confirm(
+        (повторНеизвестной
+          ? "ПОВТОР: прошлая отправка этой же формы осталась без ответа сервера — приглашения могли уже уйти. Если ещё не смотрели — сначала проверьте вкладку «Посещаемость». Повтор пойдёт с тем же номером запроса; уже приглашённых сервер пропустит.\n\n"
+          : "") +
         "Разослать приглашения?\n\n" +
         "Мероприятие: " + title + "\n" +
         "Когда (" + slots.length + "):\n" + списокСлотов + "\n" +
@@ -590,7 +774,8 @@ const SECRET_KEY = "wtusa_admin_secret";
       btn.textContent = "Отправляю приглашения…";
       resultEl.textContent = "Отправляю приглашения — это может занять до минуты. Не закрывайте и не обновляйте страницу.";
       try {
-        const res = await adminPost("adminCreateEvent", { title, description, location, slots, telegramIds, roadmapStageId, briefingKey });
+        const res = await adminPost("adminCreateEvent", { title, description, location, slots, telegramIds, roadmapStageId, briefingKey, requestId });
+        рассылкаБезОтвета = null;
         // ЧТО НА САМОМ ДЕЛЕ ПРОИЗОШЛО (05.10.2026). Прежний текст при повторной
         // отправке говорил «приглашения добавлены в существующее», даже когда
         // не добавлено ни одного; поле addedSlots не читалось вовсе; а когда
@@ -641,16 +826,38 @@ const SECRET_KEY = "wtusa_admin_secret";
       } catch (err) {
         resultEl.className = "err";
         const m = String((err && err.message) || "");
-        // Сбой связи/формата — запрос мог выполниться на сервере. Повтор
-        // безопасен: сервер не создаёт второе мероприятие с тем же названием
-        // и датой и пропускает уже приглашённых.
+        // Сбой связи/формата — запрос мог выполниться на сервере.
         const ответаНет = /Failed to fetch|NetworkError|Load failed|Unexpected token|not valid JSON|Unexpected end of|^unknown action/i.test(m);
-        resultEl.textContent = "Ошибка: " + понятнаяОшибка(err) + (ответаНет
-          ? ".\nСервер мог успеть создать мероприятие и разослать часть приглашений. Отправьте форму ещё раз, ничего в ней не меняя: второе мероприятие не создастся, уже приглашённые будут пропущены."
-          : "");
+        if (ответаНет) {
+          рассылкаБезОтвета = { rid: requestId, ключ: ключФормы };
+          ждатьПослеНеизвестной = true;
+          btn.textContent = "Проверьте вкладку «Посещаемость»";
+          setTimeout(() => {
+            ждатьПослеНеизвестной = false;
+            btn.disabled = false;
+            btn.textContent = "Отправить ещё раз";
+          }, 60000);
+          resultEl.textContent =
+            "Сервер не подтвердил рассылку (" + понятнаяОшибка(err) + "). Приглашения МОГЛИ уйти.\n" +
+            "Откройте вкладку «Посещаемость» и выберите «" + title + "»: если мероприятие там есть — рассылка прошла (у кого стоит «приглашение ещё не отправлено», тем оно досылается автоматически), повторно отправлять не нужно.\n" +
+            "Если мероприятия там нет — через минуту кнопка снова станет активной. Отправьте форму, ничего в ней не меняя: повтор пойдёт с тем же номером запроса, второе мероприятие не создастся, уже приглашённые будут пропущены.";
+          const перейти = document.createElement("button");
+          перейти.type = "button";
+          перейти.className = "btn secondary";
+          перейти.style.cssText = "margin-top:10px;width:auto;padding:6px 12px";
+          перейти.textContent = "Открыть «Посещаемость»";
+          перейти.addEventListener("click", () => switchTab("attendance"));
+          resultEl.appendChild(document.createElement("br"));
+          resultEl.appendChild(перейти);
+        } else {
+          рассылкаБезОтвета = null;
+          resultEl.textContent = "Ошибка: " + понятнаяОшибка(err);
+        }
       } finally {
-        btn.disabled = false;
-        btn.textContent = "Отправить приглашения";
+        if (!ждатьПослеНеизвестной) {
+          btn.disabled = false;
+          btn.textContent = "Отправить приглашения";
+        }
       }
     });
   }
@@ -672,6 +879,14 @@ const SECRET_KEY = "wtusa_admin_secret";
   // строках, чьи запросы ещё не вернулись, — по одному студенту уходили две
   // отметки сразу, и на экране могло остаться не то, что записалось.
   const идётОтметка = new Set();
+  // ОШИБКИ — В СТРОКЕ, А НЕ ОКНОМ (12.10.2026): "groupId|telegramId" → текст.
+  // Окно на каждую несохранённую отметку останавливало работу; при массовой
+  // отметке их было бы десятки. Подпись снимается, когда отметка сохранилась.
+  const ошибкиОтметки = new Map();
+  let идётМассоваяОтметка = false;
+  // Есть ли на сервере adminSetAttendanceBulk: null — не пробовали, false — нет
+  // (сервер ответил «unknown action»), тогда сразу отмечаем по одной строке.
+  let естьМассовоеДействие = null;
 
   function switchTab(name) {
     document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
@@ -694,7 +909,7 @@ const SECRET_KEY = "wtusa_admin_secret";
     // строку неотмеченной.
     listEl.innerHTML = `<div class="sub" style="padding:12px">Загружаем…</div>`;
     try {
-      attendanceGroups = await adminGet("adminListInvitations");
+      attendanceGroups = await adminGet("adminListInvitations", null, ТАЙМАУТ_ЗАГРУЗКИ_МС);
     } catch (err) {
       listEl.innerHTML = `<div class="sub" style="padding:12px;color:var(--danger)">Не удалось загрузить: ${esc(понятнаяОшибка(err))}</div>`;
       attendanceLoading = false;
@@ -718,29 +933,68 @@ const SECRET_KEY = "wtusa_admin_secret";
     const total = group.invitees.length;
     const yes = group.invitees.filter((i) => i.attended === "yes").length;
     const no = group.invitees.filter((i) => i.attended === "no").length;
-    summaryEl.textContent = `Приглашено: ${total} · были: ${yes} · не были: ${no} · не отмечено: ${total - yes - no}`;
+    // ПОИСК ПО ИМЕНИ (12.10.2026): на брифинге 120–180 человек, нужного студента
+    // искали прокруткой. Счётчики выше — всегда по всему мероприятию.
+    const q = нормИмя_(document.getElementById("att-search").value);
+    const показаны = q ? group.invitees.filter((i) => нормИмя_(i.name).includes(q)) : group.invitees;
+    summaryEl.textContent = `Приглашено: ${total} · были: ${yes} · не были: ${no} · не отмечено: ${total - yes - no}` +
+      (q ? ` · по поиску найдено: ${показаны.length}` : "");
+    обновитьВыборСлота_(group);
 
     const статус = { invited: "не ответил(а)", confirmed: "записан(а)", declined: "отказался(лась)" };
-    listEl.innerHTML = total
-      ? group.invitees.map((i) => `
+    listEl.innerHTML = !total
+      ? `<div class="sub" style="padding:12px">На это мероприятие никто не приглашён.</div>`
+      : !показаны.length
+      ? `<div class="sub" style="padding:12px">По поиску никого не найдено.</div>`
+      : показаны.map((i) => `
         <div class="att-row" data-tg="${esc(i.telegramId)}">
           <div>
             <div class="att-name">${esc(i.name)}</div>
             <div class="att-meta">${esc(статус[i.status] || i.status)}${i.chosen ? " · " + esc(i.chosen) : ""}${
               i.notified === "failed" ? ' · <b style="color:var(--danger)">приглашение не доставлено в Telegram</b>'
               : i.notified === "" ? " · <b>приглашение ещё не отправлено</b>" : ""}</div>
+            ${ошибкиОтметки.has(groupId + "|" + i.telegramId) ? `<div class="att-err">${esc(ошибкиОтметки.get(groupId + "|" + i.telegramId))}</div>` : ""}
           </div>
           <div class="att-seg">
             <button type="button" data-att="yes" class="${i.attended === "yes" ? "on-yes" : ""}"${идётОтметка.has(groupId + "|" + i.telegramId) ? " disabled" : ""}>Был</button>
             <button type="button" data-att="no" class="${i.attended === "no" ? "on-no" : ""}"${идётОтметка.has(groupId + "|" + i.telegramId) ? " disabled" : ""}>Не был</button>
             <button type="button" data-att="" title="Снять отметку"${идётОтметка.has(groupId + "|" + i.telegramId) ? " disabled" : ""}>—</button>
           </div>
-        </div>`).join("")
-      : `<div class="sub" style="padding:12px">На это мероприятие никто не приглашён.</div>`;
+        </div>`).join("");
+  }
+
+  const нормИмя_ = (v) => String(v || "").toLowerCase().replace(/ё/g, "е").trim();
+  // Текст ошибки сервера часто уже кончается точкой («Приглашение не найдено.»).
+  const причинаБезТочки_ = (err) => понятнаяОшибка(err).replace(/[.\s]+$/, "");
+
+  // Время, на которое записались (поле chosen), — варианты для массовой отметки.
+  function обновитьВыборСлота_(group) {
+    const box = document.getElementById("att-bulk");
+    const sel = document.getElementById("att-slot");
+    const записаны = group.invitees.filter((i) => i.status === "confirmed" && i.chosen);
+    const слоты = Array.from(new Set(записаны.map((i) => i.chosen))).sort();
+    box.style.display = слоты.length ? "" : "none";
+    const прежний = sel.value;
+    sel.innerHTML = слоты.map((сл) => {
+      const все = записаны.filter((i) => i.chosen === сл);
+      const неОтмечены = все.filter((i) => !i.attended).length;
+      return `<option value="${esc(сл)}">${esc(сл)} — записано ${все.length}, не отмечено ${неОтмечены}</option>`;
+    }).join("");
+    if (слоты.includes(прежний)) sel.value = прежний;
+    document.getElementById("att-bulk-btn").disabled = идётМассоваяОтметка;
   }
 
   document.querySelectorAll(".tab-btn").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
-  document.getElementById("att-event").addEventListener("change", renderAttendance);
+  document.getElementById("att-event").addEventListener("change", () => {
+    document.getElementById("att-bulk-status").textContent = "";
+    renderAttendance();
+  });
+  let поискПосещаемости = null;
+  document.getElementById("att-search").addEventListener("input", () => {
+    clearTimeout(поискПосещаемости);
+    поискПосещаемости = setTimeout(renderAttendance, 150);
+  });
+  document.getElementById("att-bulk-btn").addEventListener("click", () => отметитьВсехНаСлот());
   document.getElementById("att-list").addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-att]");
     if (!btn) return;
@@ -759,14 +1013,124 @@ const SECRET_KEY = "wtusa_admin_secret";
       const group = (attendanceGroups || []).find((g) => g.groupId === groupId);
       const inv = group && group.invitees.find((i) => i.telegramId === telegramId);
       if (inv) inv.attended = attended;
+      ошибкиОтметки.delete(ключ);
     } catch (err) {
-      const имя = row.querySelector(".att-name") ? row.querySelector(".att-name").textContent : "";
-      alert("Отметка" + (имя ? " для «" + имя + "»" : "") + " не сохранилась: " + понятнаяОшибка(err) + ". Проверьте строку и нажмите ещё раз.");
+      ошибкиОтметки.set(ключ, "Отметка не сохранилась: " + причинаБезТочки_(err) + ". Нажмите ещё раз.");
     } finally {
       идётОтметка.delete(ключ);
       renderAttendance();
     }
   });
+
+  /**
+   * «ОТМЕТИТЬ ВСЕХ ЗАПИСАВШИХСЯ НА ЭТО ВРЕМЯ КАК «БЫЛ»» (12.10.2026).
+   *
+   * Что ломалось. После брифинга на 40–60 человек координатор нажимал «Был»
+   * в каждой строке по отдельности, а любой сбой показывался окном на строку.
+   *
+   * Теперь: одна кнопка на выбранное время. Отмечаются только записавшиеся на
+   * это время и ещё не отмеченные (кому уже поставили «Не был» — не трогаем).
+   * Перед отправкой — подтверждение со счётом. Если на сервере есть
+   * adminSetAttendanceBulk ({ groupId, telegramIds, attended } → { ok,
+   * results?: [{ telegramId, ok, error? }] }) — одним запросом; если сервер его
+   * не знает или ответ не дошёл — по одной строке подряд (отметка повторяема без
+   * вреда), с ходом «k из N» и подписью об ошибке в самой строке.
+   */
+  async function отметитьВсехНаСлот() {
+    if (идётМассоваяОтметка) return;
+    const statusEl = document.getElementById("att-bulk-status");
+    const btn = document.getElementById("att-bulk-btn");
+    const groupId = document.getElementById("att-event").value;
+    const group = (attendanceGroups || []).find((g) => g.groupId === groupId);
+    const слот = document.getElementById("att-slot").value;
+    if (!group || !слот) return;
+    const записаны = group.invitees.filter((i) => i.status === "confirmed" && i.chosen === слот);
+    const цели = записаны.filter((i) => !i.attended && !идётОтметка.has(groupId + "|" + i.telegramId));
+    const неБыли = записаны.filter((i) => i.attended === "no").length;
+    statusEl.className = "sub";
+    if (!цели.length) {
+      statusEl.textContent = "Все записавшиеся на это время уже отмечены.";
+      return;
+    }
+    const ок = window.confirm(
+      "Отметить «Был» всех записавшихся на " + слот + "?\n\n" +
+      "Мероприятие: " + group.title + "\n" +
+      "Будет отмечено: " + цели.length + "\n" +
+      (записаны.length - цели.length ? "Уже отмечены — не трогаем: " + (записаны.length - цели.length) + (неБыли ? " (из них «Не был»: " + неБыли + ")" : "") + "\n" : "") +
+      "\nСтуденты увидят «Вы посетили» в приложении."
+    );
+    if (!ок) return;
+
+    идётМассоваяОтметка = true;
+    btn.disabled = true;
+    const ключи = цели.map((i) => groupId + "|" + i.telegramId);
+    ключи.forEach((k) => идётОтметка.add(k));
+    statusEl.textContent = "Отмечаем " + цели.length + "…";
+    renderAttendance();
+    let сохранено = 0;
+    let ошибок = 0;
+    let прервано = 0;
+    let массовоГотово = false;
+    try {
+      if (естьМассовоеДействие !== false) {
+        try {
+          const ответ = await adminPost("adminSetAttendanceBulk", { groupId, telegramIds: цели.map((i) => i.telegramId), attended: "yes" });
+          естьМассовоеДействие = true;
+          const results = Array.isArray(ответ && ответ.results) ? ответ.results : null;
+          цели.forEach((inv) => {
+            const k = groupId + "|" + inv.telegramId;
+            const r = results ? results.find((x) => String(x.telegramId) === String(inv.telegramId)) : null;
+            if (!results || (r && r.ok !== false && !r.error)) {
+              inv.attended = "yes";
+              ошибкиОтметки.delete(k);
+              сохранено++;
+            } else {
+              ошибкиОтметки.set(k, "Отметка не сохранилась: " + (r && r.error ? причинаБезТочки_(r.error) : "сервер не подтвердил") + ". Нажмите «Был» ещё раз.");
+              ошибок++;
+            }
+          });
+          массовоГотово = true;
+        } catch (err) {
+          // Сервер не знает действие — больше не пробуем; любой другой сбой —
+          // тоже отмечаем по одной: повторная отметка «Был» ничего не портит.
+          if (/^unknown action/i.test(String((err && err.message) || ""))) естьМассовоеДействие = false;
+        }
+      }
+      if (!массовоГотово) {
+        for (let n = 0; n < цели.length; n++) {
+          const inv = цели[n];
+          const k = groupId + "|" + inv.telegramId;
+          statusEl.textContent = "Отмечаем: " + (n + 1) + " из " + цели.length + "…";
+          try {
+            await adminPost("adminSetAttendance", { telegramId: inv.telegramId, groupId, attended: "yes" });
+            inv.attended = "yes";
+            ошибкиОтметки.delete(k);
+            сохранено++;
+          } catch (err) {
+            ошибкиОтметки.set(k, "Отметка не сохранилась: " + причинаБезТочки_(err) + ". Нажмите «Был» ещё раз.");
+            ошибок++;
+            if (/bad secret/i.test(String((err && err.message) || ""))) {
+              // Код больше не действует — остальные строки не трогаем.
+              прервано = цели.length - n - 1;
+              break;
+            }
+          } finally {
+            идётОтметка.delete(k);
+            renderAttendance();
+          }
+        }
+      }
+    } finally {
+      ключи.forEach((k) => идётОтметка.delete(k));
+      идётМассоваяОтметка = false;
+      btn.disabled = false;
+      statusEl.className = ошибок ? "sub err" : "sub";
+      statusEl.textContent = "Отмечено «Был»: " + сохранено + " из " + цели.length + "." +
+        (ошибок ? " Не сохранилось: " + ошибок + " — строки подписаны красным, нажмите в них «Был» ещё раз." : "") +
+        (прервано ? " Остановлено: код входа больше не действует (" + прервано + " не отмечено) — войдите заново." : "");
+      renderAttendance();
+    }
+  }
 
   init();
 

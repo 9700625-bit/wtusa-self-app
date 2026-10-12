@@ -46,7 +46,20 @@ export async function render(container, params) {
   const detail = await api.getStageDetail(stageId);
 
   if (!detail) {
-    container.innerHTML = `<div class="card"><h2>Этап не найден</h2></div>`;
+    // ЭТАП НЕ НАЙДЕН — НЕ ТУПИК (12.10.2026). По старой ссылке из уведомления (этап
+    // переименован или убран) студент видел одну строку «Этап не найден» без единой
+    // кнопки: ни «Назад», ни пути на главную. Теперь — объяснение и обе кнопки.
+    container.innerHTML = `
+      <section class="screen active">
+        <button class="btn secondary" id="back-btn" style="width:auto;padding:8px 14px;margin-bottom:12px">← Назад</button>
+        <div class="card">
+          <h2>Этап не найден</h2>
+          <div class="sub">Возможно, ссылка устарела. Ваш текущий этап всегда виден на главной.</div>
+          <button class="btn" id="home-btn" style="margin-top:14px">На главную</button>
+        </div>
+      </section>`;
+    container.querySelector("#back-btn").addEventListener("click", goBack);
+    container.querySelector("#home-btn").addEventListener("click", () => { window.location.hash = "home"; });
     return;
   }
 
@@ -77,7 +90,12 @@ export async function render(container, params) {
       extraHtml += `
       <div class="card">
         <h3>Срок активации</h3>
-        <div class="row"><div class="sub">Осталось</div><div class="metric">${daysLabel(remaining)}</div></div>
+        ${
+          // 12.10.2026: в последний день — не «Осталось 0 дней».
+          remaining === 0
+            ? `<div class="row"><div class="sub">Срок</div><div class="metric">сегодня последний день</div></div>`
+            : `<div class="row"><div class="sub">Осталось</div><div class="metric">${daysLabel(remaining)}</div></div>`
+        }
       </div>`;
     }
   }
@@ -90,7 +108,7 @@ export async function render(container, params) {
     const days = daysUntil(visa.appointmentDate);
     extraHtml += `
       <div class="card hero">
-        <div class="sub">US Visa Interview 🇺🇸</div>
+        <div class="sub">US Visa Interview</div>
         <h1 style="margin-bottom:2px">${
           // Пока координатор не внёс запись об интервью, бэкенд отдаёт здесь
           // null, а formatDate возвращал его как есть — в шаблонной строке это

@@ -13,7 +13,10 @@ function timingText(p) {
   // получалось «до » с висящим предлогом (а до правки formatDate — «до null»).
   if (!p.deadline) return "срок уточняется";
   if (p.daysUntilDeadline == null) return `до ${formatDate(p.deadline)}`;
-  if (p.daysUntilDeadline >= 0) return `до ${formatDate(p.deadline)} · осталось ${daysLabel(p.daysUntilDeadline)}`;
+  // «ОСТАЛОСЬ 0 ДНЕЙ» (12.10.2026): в день срока строка звучала как «уже поздно». Теперь —
+  // «сегодня последний день»; просрочка, как и раньше, — «просрочено на N дней».
+  if (p.daysUntilDeadline === 0) return `до ${formatDate(p.deadline)} · сегодня последний день`;
+  if (p.daysUntilDeadline > 0) return `до ${formatDate(p.deadline)} · осталось ${daysLabel(p.daysUntilDeadline)}`;
   return `до ${formatDate(p.deadline)} · просрочено на ${daysLabel(p.daysUntilDeadline)}`;
 }
 
@@ -34,7 +37,8 @@ export async function render(container) {
   // как есть (у строки .toLocaleString() возвращает саму строку), а адрес ссылки — с любой
   // схемой, включая javascript:. Сервер шлёт число и https-адрес; экран на это не полагается.
   const usdKzt = fxRate && Number(fxRate.usdKzt) > 0 ? Number(fxRate.usdKzt) : 0;
-  const kzt = (usd) => Math.round(Number(usd) * usdKzt).toLocaleString("ru-RU") + " ₸";
+  // 12.10.2026: неразрывный пробел перед ₸ — сумма не рвётся на две строки (как в formatMoney).
+  const kzt = (usd) => Math.round(Number(usd) * usdKzt).toLocaleString("ru-RU") + "\u00a0₸";
   const rateText = usdKzt
     ? `курс НБ РК ${usdKzt.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₸/$` + (fxRate.date ? ` на ${esc(fxRate.date)}` : "")
     : "";
