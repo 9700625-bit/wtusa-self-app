@@ -890,9 +890,6 @@ const SECRET_KEY = "wtusa_admin_secret";
   // отметке их было бы десятки. Подпись снимается, когда отметка сохранилась.
   const ошибкиОтметки = new Map();
   let идётМассоваяОтметка = false;
-  // Есть ли на сервере adminSetAttendanceBulk: null — не пробовали, false — нет
-  // (сервер ответил «unknown action»), тогда сразу отмечаем по одной строке.
-  let естьМассовоеДействие = null;
 
   function switchTab(name) {
     document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
@@ -929,44 +926,75 @@ const SECRET_KEY = "wtusa_admin_secret";
     renderAttendance();
   }
 
+  /**
+   * P12-аудит (12.10.2026): ОТМЕТКА ПЕРЕРИСОВЫВАЕТ ТОЛЬКО СВОЮ СТРОКУ.
+   * Что ломалось: ответ на каждую отметку перерисовывал весь список (на брифинге
+   * 120–300 строк), а при массовой отметке — после каждой из десятков строк.
+   * Что теперь: после ответа меняется одна строка, счётчики и выбор времени;
+   * весь список — только при смене мероприятия, поиске и перезагрузке.
+   */
+  const СТАТУС_ПРИГЛАШЕНИЯ = { invited: "не ответил(а)", confirmed: "записан(а)", declined: "отказался(лась)" };
+
+  function строкаПосещаемости(i, groupId) {
+    const ключ = groupId + "|" + i.telegramId;
+    const выкл = идётОтметка.has(ключ) ? " disabled" : "";
+    return `
+        <div class="att-row" data-tg="${esc(i.telegramId)}">
+          <div>
+            <div class="att-name">${esc(i.name)}</div>
+            <div class="att-meta">${esc(СТАТУС_ПРИГЛАШЕНИЯ[i.status] || i.status)}${i.chosen ? " · " + esc(i.chosen) : ""}${
+              i.notified === "failed" ? ' · <b style="color:var(--danger)">приглашение не доставлено в Telegram</b>'
+              : i.notified === "" ? " · <b>приглашение ещё не отправлено</b>" : ""}</div>
+            ${ошибкиОтметки.has(ключ) ? `<div class="att-err">${esc(ошибкиОтметки.get(ключ))}</div>` : ""}
+          </div>
+          <div class="att-seg">
+            <button type="button" data-att="yes" class="${i.attended === "yes" ? "on-yes" : ""}"${выкл}>Был</button>
+            <button type="button" data-att="no" class="${i.attended === "no" ? "on-no" : ""}"${выкл}>Не был</button>
+            <button type="button" data-att="" title="Снять отметку"${выкл}>—</button>
+          </div>
+        </div>`;
+  }
+
+  // Показанные поиском строки и сводка над списком (счётчики — по всему мероприятию).
+  function показанныеПосещаемости(group) {
+    const q = нормИмя_(document.getElementById("att-search").value);
+    return { q, показаны: q ? group.invitees.filter((i) => нормИмя_(i.name).includes(q)) : group.invitees };
+  }
+
+  function обновитьСводку(group) {
+    const { q, показаны } = показанныеПосещаемости(group);
+    const total = group.invitees.length;
+    const yes = group.invitees.filter((i) => i.attended === "yes").length;
+    const no = group.invitees.filter((i) => i.attended === "no").length;
+    document.getElementById("att-summary").textContent = `Приглашено: ${total} · были: ${yes} · не были: ${no} · не отмечено: ${total - yes - no}` +
+      (q ? ` · по поиску найдено: ${показаны.length}` : "");
+    обновитьВыборСлота_(group);
+    return показаны;
+  }
+
   function renderAttendance() {
     const listEl = document.getElementById("att-list");
     const summaryEl = document.getElementById("att-summary");
     const groupId = document.getElementById("att-event").value;
     const group = (attendanceGroups || []).find((g) => g.groupId === groupId);
     if (!group) { listEl.innerHTML = ""; summaryEl.textContent = ""; return; }
-
-    const total = group.invitees.length;
-    const yes = group.invitees.filter((i) => i.attended === "yes").length;
-    const no = group.invitees.filter((i) => i.attended === "no").length;
-    // ПОИСК ПО ИМЕНИ (12.10.2026): на брифинге 120–180 человек, нужного студента
-    // искали прокруткой. Счётчики выше — всегда по всему мероприятию.
-    const q = нормИмя_(document.getElementById("att-search").value);
-    const показаны = q ? group.invitees.filter((i) => нормИмя_(i.name).includes(q)) : group.invitees;
-    summaryEl.textContent = `Приглашено: ${total} · были: ${yes} · не были: ${no} · не отмечено: ${total - yes - no}` +
-      (q ? ` · по поиску найдено: ${показаны.length}` : "");
-    обновитьВыборСлота_(group);
-
-    const статус = { invited: "не ответил(а)", confirmed: "записан(а)", declined: "отказался(лась)" };
-    listEl.innerHTML = !total
+    const показаны = обновитьСводку(group);
+    listEl.innerHTML = !group.invitees.length
       ? `<div class="sub" style="padding:12px">На это мероприятие никто не приглашён.</div>`
       : !показаны.length
       ? `<div class="sub" style="padding:12px">По поиску никого не найдено.</div>`
-      : показаны.map((i) => `
-        <div class="att-row" data-tg="${esc(i.telegramId)}">
-          <div>
-            <div class="att-name">${esc(i.name)}</div>
-            <div class="att-meta">${esc(статус[i.status] || i.status)}${i.chosen ? " · " + esc(i.chosen) : ""}${
-              i.notified === "failed" ? ' · <b style="color:var(--danger)">приглашение не доставлено в Telegram</b>'
-              : i.notified === "" ? " · <b>приглашение ещё не отправлено</b>" : ""}</div>
-            ${ошибкиОтметки.has(groupId + "|" + i.telegramId) ? `<div class="att-err">${esc(ошибкиОтметки.get(groupId + "|" + i.telegramId))}</div>` : ""}
-          </div>
-          <div class="att-seg">
-            <button type="button" data-att="yes" class="${i.attended === "yes" ? "on-yes" : ""}"${идётОтметка.has(groupId + "|" + i.telegramId) ? " disabled" : ""}>Был</button>
-            <button type="button" data-att="no" class="${i.attended === "no" ? "on-no" : ""}"${идётОтметка.has(groupId + "|" + i.telegramId) ? " disabled" : ""}>Не был</button>
-            <button type="button" data-att="" title="Снять отметку"${идётОтметка.has(groupId + "|" + i.telegramId) ? " disabled" : ""}>—</button>
-          </div>
-        </div>`).join("");
+      : показаны.map((i) => строкаПосещаемости(i, groupId)).join("");
+  }
+
+  // Перерисовать одну строку (и сводку), если это мероприятие сейчас на экране.
+  function обновитьСтроку(groupId, telegramId) {
+    if (document.getElementById("att-event").value !== groupId) return;
+    const group = (attendanceGroups || []).find((g) => g.groupId === groupId);
+    if (!group) return;
+    обновитьСводку(group);
+    const inv = group.invitees.find((i) => i.telegramId === telegramId);
+    const row = [...document.querySelectorAll("#att-list .att-row")].find((r) => r.dataset.tg === telegramId);
+    if (inv && row) row.outerHTML = строкаПосещаемости(inv, groupId);
   }
 
   const нормИмя_ = (v) => String(v || "").toLowerCase().replace(/ё/g, "е").trim();
@@ -1024,7 +1052,7 @@ const SECRET_KEY = "wtusa_admin_secret";
       ошибкиОтметки.set(ключ, "Отметка не сохранилась: " + причинаБезТочки_(err) + ". Нажмите ещё раз.");
     } finally {
       идётОтметка.delete(ключ);
-      renderAttendance();
+      обновитьСтроку(groupId, telegramId);
     }
   });
 
@@ -1036,11 +1064,15 @@ const SECRET_KEY = "wtusa_admin_secret";
    *
    * Теперь: одна кнопка на выбранное время. Отмечаются только записавшиеся на
    * это время и ещё не отмеченные (кому уже поставили «Не был» — не трогаем).
-   * Перед отправкой — подтверждение со счётом. Если на сервере есть
-   * adminSetAttendanceBulk ({ groupId, telegramIds, attended } → { ok,
-   * results?: [{ telegramId, ok, error? }] }) — одним запросом; если сервер его
-   * не знает или ответ не дошёл — по одной строке подряд (отметка повторяема без
-   * вреда), с ходом «k из N» и подписью об ошибке в самой строке.
+   * Перед отправкой — подтверждение со счётом. Отмечаем по одной строке подряд
+   * (отметка повторяема без вреда), с ходом «k из N» и подписью об ошибке в
+   * самой строке.
+   *
+   * P12-аудит (12.10.2026): что ломалось — каждое нажатие сначала слало
+   * adminSetAttendanceBulk, которого на сервере нет: запрос уходил в ветку
+   * Mini App, получал «UNAUTHORIZED» (не «unknown action»), и страница пробовала
+   * его снова при каждом нажатии — лишний запрос с паролем в теле. Теперь его
+   * не шлём; после каждой отметки перерисовывается только её строка.
    */
   async function отметитьВсехНаСлот() {
     if (идётМассоваяОтметка) return;
@@ -1076,54 +1108,27 @@ const SECRET_KEY = "wtusa_admin_secret";
     let сохранено = 0;
     let ошибок = 0;
     let прервано = 0;
-    let массовоГотово = false;
     try {
-      if (естьМассовоеДействие !== false) {
+      for (let n = 0; n < цели.length; n++) {
+        const inv = цели[n];
+        const k = groupId + "|" + inv.telegramId;
+        statusEl.textContent = "Отмечаем: " + (n + 1) + " из " + цели.length + "…";
         try {
-          const ответ = await adminPost("adminSetAttendanceBulk", { groupId, telegramIds: цели.map((i) => i.telegramId), attended: "yes" });
-          естьМассовоеДействие = true;
-          const results = Array.isArray(ответ && ответ.results) ? ответ.results : null;
-          цели.forEach((inv) => {
-            const k = groupId + "|" + inv.telegramId;
-            const r = results ? results.find((x) => String(x.telegramId) === String(inv.telegramId)) : null;
-            if (!results || (r && r.ok !== false && !r.error)) {
-              inv.attended = "yes";
-              ошибкиОтметки.delete(k);
-              сохранено++;
-            } else {
-              ошибкиОтметки.set(k, "Отметка не сохранилась: " + (r && r.error ? причинаБезТочки_(r.error) : "сервер не подтвердил") + ". Нажмите «Был» ещё раз.");
-              ошибок++;
-            }
-          });
-          массовоГотово = true;
+          await adminPost("adminSetAttendance", { telegramId: inv.telegramId, groupId, attended: "yes" });
+          inv.attended = "yes";
+          ошибкиОтметки.delete(k);
+          сохранено++;
         } catch (err) {
-          // Сервер не знает действие — больше не пробуем; любой другой сбой —
-          // тоже отмечаем по одной: повторная отметка «Был» ничего не портит.
-          if (/^unknown action/i.test(String((err && err.message) || ""))) естьМассовоеДействие = false;
-        }
-      }
-      if (!массовоГотово) {
-        for (let n = 0; n < цели.length; n++) {
-          const inv = цели[n];
-          const k = groupId + "|" + inv.telegramId;
-          statusEl.textContent = "Отмечаем: " + (n + 1) + " из " + цели.length + "…";
-          try {
-            await adminPost("adminSetAttendance", { telegramId: inv.telegramId, groupId, attended: "yes" });
-            inv.attended = "yes";
-            ошибкиОтметки.delete(k);
-            сохранено++;
-          } catch (err) {
-            ошибкиОтметки.set(k, "Отметка не сохранилась: " + причинаБезТочки_(err) + ". Нажмите «Был» ещё раз.");
-            ошибок++;
-            if (/bad secret/i.test(String((err && err.message) || ""))) {
-              // Код больше не действует — остальные строки не трогаем.
-              прервано = цели.length - n - 1;
-              break;
-            }
-          } finally {
-            идётОтметка.delete(k);
-            renderAttendance();
+          ошибкиОтметки.set(k, "Отметка не сохранилась: " + причинаБезТочки_(err) + ". Нажмите «Был» ещё раз.");
+          ошибок++;
+          if (/bad secret/i.test(String((err && err.message) || ""))) {
+            // Код больше не действует — остальные строки не трогаем.
+            прервано = цели.length - n - 1;
+            break;
           }
+        } finally {
+          идётОтметка.delete(k);
+          обновитьСтроку(groupId, inv.telegramId);
         }
       }
     } finally {

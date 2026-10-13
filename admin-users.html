@@ -329,7 +329,7 @@ function applyFilter_(list) {
 function renderFilters() {
   const items = [["all", "Все"], ["stuck", `На этапе ${STUCK_DAYS}+ дней`], ["overdue", "Просрочка оплаты"], ["stale", "Не заходили"], ["nobot", "Бот не может писать"]];
   // P12: из фильтра «Бот не может писать» — сразу в рассылку по WhatsApp со ссылкой на бота.
-  const вРассылку = currentFilter === "nobot" ? `<a class="chip" href="admin-broadcasts.html?segment=cannot_write" style="text-decoration:none">Рассылка этим →</a>` : "";
+  const вРассылку = currentFilter === "nobot" ? `<a class="chip" data-to-broadcasts href="admin-broadcasts.html?segment=cannot_write" style="text-decoration:none">Рассылка этим →</a>` : "";
   return `<div class="filters">${items.map(([k, label]) => `<button type="button" class="chip${currentFilter === k ? " active" : ""}" data-filter="${k}">${label}</button>`).join("")}${вРассылку}</div>`;
 }
 
@@ -356,8 +356,18 @@ function renderTable(filterText) {
 
   // 05.10.2026: при пустом результате поиска кнопки фильтров исчезали, и
   // было не видно, какой фильтр включён.
-  const подключитьФильтры = () =>
+  const подключитьФильтры = () => {
     wrap.querySelectorAll("[data-filter]").forEach((b) => b.addEventListener("click", () => { currentFilter = b.dataset.filter; renderTable(filterText); }));
+    // P12-аудит (12.10.2026): в кабинете ссылка «Рассылка этим →» открывала рассылки
+    // прямо во фрейме «Студенты». Теперь — во вкладке «Рассылки» кабинета
+    // (admin-panel.html, открытьВкладку); отдельно открытая страница идёт по ссылке как раньше.
+    wrap.querySelectorAll("a[data-to-broadcasts]").forEach((a) => a.addEventListener("click", (e) => {
+      if (window.parent === window) return;
+      try {
+        if (typeof window.parent.открытьВкладку === "function" && window.parent.открытьВкладку("broadcasts", a.getAttribute("href"))) e.preventDefault();
+      } catch (err) { /* не наш кабинет — обычный переход по ссылке */ }
+    }));
+  };
   if (!filtered.length) {
     wrap.innerHTML = `${renderFilters()}<div class="sub" style="padding:12px">Никого не найдено.</div>`;
     подключитьФильтры();

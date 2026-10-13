@@ -608,6 +608,10 @@ function findParentOrder(branchStage) {
 export function computeProgress(currentStageId) {
   const current = getStage(currentStageId);
   if (!current) return 0;
+  // P12-аудит (12.10.2026): последний этап пути — 100 %. Что ломалось: на «Виза J-1 одобрена»
+  // визовая группа считалась как 6 из 7 этапов, и студент, прошедший весь путь, видел 95 %.
+  // Остальные этапы считаются как раньше.
+  if (current.id === MAIN_LINE[MAIN_LINE.length - 1].id) return 100;
   const currentGroupOrder = getGroup(current.group).order;
   let pct = 0;
   for (const g of GROUPS) {

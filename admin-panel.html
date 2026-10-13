@@ -144,11 +144,45 @@ function сообщение(текст, вид) {
     document.querySelectorAll(".panel-tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
     document.querySelectorAll(".frames iframe").forEach((f) => {
       const on = f.dataset.tab === tab;
+      const былаСкрыта = !f.classList.contains("active");
       f.classList.toggle("active", on);
       if (on && !f.src) f.src = SRC[tab];
+      // P12-аудит (12.10.2026): уже открытой вкладке сообщаем, что её снова
+      // показали, — «Рассылки» перечитывают историю (см. panel-show там).
+      else if (on && былаСкрыта) {
+        try { f.contentWindow.dispatchEvent(new Event("panel-show")); } catch (e) {}
+      }
     });
     history.replaceState(null, "", "#" + tab);
   }
+
+  /**
+   * P12-аудит (12.10.2026): ПЕРЕХОД МЕЖДУ ВКЛАДКАМИ СО СТРАНИЦЫ ВО ФРЕЙМЕ.
+   * Что ломалось: ссылка «Рассылка этим →» в «Студентах» открывала страницу
+   * рассылок внутри фрейма «Студенты»: вкладка «Студенты» показывала
+   * «Рассылки», вернуться к списку можно было только перезагрузкой, а запуск
+   * оттуда не появлялся во вкладке «Рассылки».
+   * Что теперь: страница во фрейме зовёт открытьВкладку(tab, src) — нужная
+   * вкладка открывается с этим адресом (черновик рассылки не теряется без
+   * вопроса). Возвращает true, если вкладку открыл кабинет.
+   */
+  window.открытьВкладку = function (tab, src) {
+    if (!Object.prototype.hasOwnProperty.call(SRC, tab)) return false;
+    const f = document.querySelector('.frames iframe[data-tab="' + tab + '"]');
+    if (!f) return false;
+    if (src && f.getAttribute("src") !== src) {
+      let черновик = "";
+      try { const t = f.contentWindow.document.getElementById("bc-text"); черновик = t ? t.value.trim() : ""; } catch (e) {}
+      if (черновик && !window.confirm("Во вкладке «Рассылки» есть неотправленный текст. Заменить его новой рассылкой?")) {
+        activate(tab);
+        return true;
+      }
+      f.classList.remove("active");
+      f.src = src;
+    }
+    activate(tab);
+    return true;
+  };
 
   document.querySelectorAll(".panel-tab").forEach((b) => b.addEventListener("click", () => activate(b.dataset.tab)));
   document.getElementById("logout-btn").addEventListener("click", () => {

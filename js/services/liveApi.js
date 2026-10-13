@@ -155,50 +155,77 @@ let fromDisk_ = false;
     if (saved) { stateCache = saved; stateCacheAt = 0; fromDisk_ = true; }
 })();
 
+/**
+ * P12-аудит (12.10.2026): ОТВЕТ, ПРОЧИТАННЫЙ ДО ДЕЙСТВИЯ СТУДЕНТА, НЕ ЗАТИРАЕТ ЕГО.
+ * Что ломалось: при открытии из памяти телефона свежее состояние идёт в фоне ~3 с. Студент
+ * за это время жал «Я готов(а) к визе» (или галочку чек-листа) — кеш правился на месте, а
+ * потом приходил фоновый ответ, прочитанный сервером ДО нажатия, и молча возвращал старое:
+ * кнопка снова активна, галочка снята, и так сохранялось на телефоне.
+ * Теперь: каждое своё изменение увеличивает номер версии (stateEpoch). Ответ на запрос,
+ * начатый при другой версии, в кеш не кладём — сразу перезапрашиваем.
+ */
+let stateEpoch = 0;
 function fetchState_() {
-    if (!statePromise) {
-        statePromise = apiGet("state")
-            .then((json) => {
-                stateCache = json;
-                stateCacheAt = Date.now();
-                fromDisk_ = false;
-                diskSave_(json);
-                return json;
-            })
-            .finally(() => {
-                statePromise = null;
-            });
-    }
-    return statePromise;
+    if (statePromise) return statePromise;
+    const эпоха = stateEpoch;
+    const p = apiGet("state").then(
+        (json) => {
+            if (statePromise === p) statePromise = null;
+            if (эпоха !== stateEpoch) return fetchState_(); // устарел, пока шёл, — перезапрос
+            stateCache = json;
+            stateCacheAt = Date.now();
+            fromDisk_ = false;
+            diskSave_(json);
+            return json;
+        },
+        (err) => {
+            if (statePromise === p) statePromise = null;
+            throw err;
+        }
+    );
+    statePromise = p;
+    return p;
+}
+
+function безМетки_(data) {
+    const copy = { ...(data || {}) }; delete copy._t;
+    return JSON.stringify(copy);
+}
+
+/** Свежие данные — в фоне, один запрос на всех; пришли другие — тихо перерисовываем экран. */
+function обновитьВФоне_() {
+    if (statePromise) return;
+    const before = безМетки_(stateCache);
+    fetchState_()
+        .then((json) => {
+            if (безМетки_(json) !== before) window.dispatchEvent(new Event("state-refreshed"));
+        })
+        .catch((err) => {
+            // Доступ отозван — стираем сохранённое и даём экрану показать ошибку.
+            if (/NOT_INVITED|UNAUTHORIZED/.test(String(err && err.message))) {
+                diskClear_(); stateCache = null; fromDisk_ = false;
+                window.dispatchEvent(new Event("state-refreshed"));
+            }
+        });
 }
 
 async function getState(force) {
     // Данные с диска: отдаём сразу, свежие — в фоне (один раз).
-    if (!force && fromDisk_ && stateCache) {
-        if (!statePromise) {
-            const before = JSON.stringify(stateCache);
-            fetchState_()
-                .then((json) => {
-                    const after = { ...json }; delete after._t;
-                    if (JSON.stringify(after) !== before) window.dispatchEvent(new Event("state-refreshed"));
-                })
-                .catch((err) => {
-                    // Доступ отозван — стираем сохранённое и даём экрану показать ошибку.
-                    if (/NOT_INVITED|UNAUTHORIZED/.test(String(err && err.message))) {
-                        diskClear_(); stateCache = null; fromDisk_ = false;
-                        window.dispatchEvent(new Event("state-refreshed"));
-                    }
-                });
-        }
+    // P12-аудит (12.10.2026): так же и с кешем старше 5 минут. Раньше после 5 минут каждый
+    // переход ждал сервер ~3 с с затемнённым экраном; теперь экран рисуется сразу из
+    // памяти, а свежие данные приходят тихой перерисовкой (см. router.js).
+    if (!force && stateCache && (fromDisk_ || Date.now() - stateCacheAt >= STATE_CACHE_MS)) {
+        обновитьВФоне_();
         return stateCache;
     }
-    const fresh = !force && stateCache && Date.now() - stateCacheAt < STATE_CACHE_MS;
-    if (fresh) return stateCache;
+    if (!force && stateCache) return stateCache;
     if (force) statePromise = null; // discard any stale in-flight promise, force a real refetch
     return fetchState_();
 }
 
 function invalidateState() {
+    stateEpoch++; // P12-аудит: ответ, который уже в пути, в кеш не попадёт
+    statePromise = null; // и следующий экран его не ждёт — сразу идёт свежий запрос
     stateCache = null;
     fromDisk_ = false;
 }
@@ -223,7 +250,12 @@ function invalidateState() {
  */
 function patchState_(поле, значение) {
     if (stateCache && значение !== undefined && значение !== null) {
+        // P12-аудит (12.10.2026): новая версия (ответ в пути её не затрёт, см. fetchState_)
+        // и сохранённая на телефоне копия — тоже с правкой, иначе при следующем открытии
+        // студент снова видел бы кнопку активной.
+        stateEpoch++;
         stateCache = { ...stateCache, [поле]: значение };
+        diskSave_(stateCache);
     } else {
         invalidateState();
     }
@@ -420,33 +452,61 @@ let eventsFromDisk_ = false;
     } catch (e) { /* ignore */ }
 })();
 
-export async function getEvents() {
-    if (eventsFromDisk_ && eventsCache) {
-        eventsFromDisk_ = false;
-        const cached = eventsCache;
-        const before = JSON.stringify(cached);
-        eventsCache = null;
-        // свежие — в фоне; пришли другие — перерисовываем экран (как для state)
-        getEvents()
-            .then((fresh) => { if (JSON.stringify(fresh) !== before) window.dispatchEvent(new Event("state-refreshed")); })
-            .catch(() => {});
-        eventsCache = eventsCache || cached;
-        return cached;
-    }
-    if (eventsCache && Date.now() - eventsCacheAt < EVENTS_CACHE_MS) return eventsCache;
+/*
+ * P12-аудит (12.10.2026): ЗАПИСЬ НЕ ОТКАТЫВАЕТСЯ ФОНОВЫМ ОТВЕТОМ. Что ломалось: при открытии
+ * из памяти телефона список мероприятий обновлялся в фоне 2–5 с. Студент успевал записаться,
+ * кеш сбрасывался — но перечитывание получало тот же фоновый запрос, прочитанный ДО записи:
+ * карточка снова предлагала «Записаться», и эта копия жила 5 минут и сохранялась на телефоне.
+ * Теперь, как у state: ответ на запрос, начатый до ответа студента (другая версия eventsEpoch),
+ * выбрасывается и список перезапрашивается; сохранённая копия после ответа стирается.
+ */
+let eventsEpoch = 0;
+function fetchEvents_() {
     // Склейка параллельных вызовов — та же причина, что и у getState выше:
     // экран может спросить события дважды в один тик.
-    if (!eventsPromise) {
-        eventsPromise = apiGet("events")
-            .then((json) => {
-                eventsCache = json;
-                eventsCacheAt = Date.now();
-                try { const k = diskKey_(); if (k) localStorage.setItem(k + "_ev", JSON.stringify({ at: Date.now(), data: json })); } catch (e) { /* ignore */ }
-                return json;
-            })
-            .finally(() => { eventsPromise = null; });
+    if (eventsPromise) return eventsPromise;
+    const эпоха = eventsEpoch;
+    const p = apiGet("events").then(
+        (json) => {
+            if (eventsPromise === p) eventsPromise = null;
+            if (эпоха !== eventsEpoch) return fetchEvents_(); // устарел, пока шёл, — перезапрос
+            eventsCache = json;
+            eventsCacheAt = Date.now();
+            eventsFromDisk_ = false;
+            try { const k = diskKey_(); if (k) localStorage.setItem(k + "_ev", JSON.stringify({ at: Date.now(), data: json })); } catch (e) { /* ignore */ }
+            return json;
+        },
+        (err) => {
+            if (eventsPromise === p) eventsPromise = null;
+            throw err;
+        }
+    );
+    eventsPromise = p;
+    return p;
+}
+
+export async function getEvents() {
+    // Из памяти телефона или старше 5 минут — отдаём сразу, свежие — в фоне;
+    // пришли другие — перерисовываем экран (как для state).
+    if (eventsCache && (eventsFromDisk_ || Date.now() - eventsCacheAt >= EVENTS_CACHE_MS)) {
+        if (!eventsPromise) {
+            const before = JSON.stringify(eventsCache);
+            fetchEvents_()
+                .then((fresh) => { if (JSON.stringify(fresh) !== before) window.dispatchEvent(new Event("state-refreshed")); })
+                .catch(() => {});
+        }
+        return eventsCache;
     }
-    return eventsPromise;
+    if (eventsCache) return eventsCache;
+    return fetchEvents_();
+}
+
+function сброситьСобытия_() {
+    eventsEpoch++;
+    eventsPromise = null; // устаревший запрос не ждём — перечитывание сразу идёт новым
+    eventsCache = null;
+    eventsFromDisk_ = false;
+    try { const k = diskKey_(); if (k) localStorage.removeItem(k + "_ev"); } catch (e) { /* ignore */ }
 }
 
 export async function respondEvent(groupId, choice, chosenEventId) {
@@ -459,9 +519,9 @@ export async function respondEvent(groupId, choice, chosenEventId) {
         // 07.10.2026: и при неизвестном исходе (обрыв, тайм-аут, страница ошибки) запись могла состояться.
         // Раньше в этих трёх случаях кеш оставался, и «перечитать список» отдавало старую копию из памяти:
         // студент записан, а карточка по-прежнему предлагает «Записаться». Теперь кеш сбрасывается всегда.
-        eventsCache = null;
+        сброситьСобытия_();
         throw err;
     }
-    eventsCache = null; // ответ студента меняет список — показываем свежий
+    сброситьСобытия_(); // ответ студента меняет список — показываем свежий
     return result;
 }

@@ -102,6 +102,7 @@ summary{cursor:pointer;font-size:13px;font-weight:700;color:var(--navy)}
 .bc-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
 .bc-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .bc-detail{margin-top:8px;overflow-x:auto}
+#bc-list-state:empty{display:none}
 </style>
 </head>
 <body>
@@ -197,6 +198,7 @@ try {
 <div class="card">
 <div class="bc-top"><h2 style="margin:0">История рассылок</h2><button class="btn secondary small-btn" id="bc-refresh" type="button">Обновить</button></div>
 <div id="bc-hours" class="sub" style="margin-bottom:8px"></div>
+<div id="bc-list-state" class="sub" role="status" style="margin-bottom:8px"></div>
 <div id="bc-list"><div class="sub">Загрузка…</div></div>
 </div>
 </main>
@@ -406,17 +408,30 @@ function текущийКлюч() {
 
 function обновитьКнопкуЗапуска() {
   const ok = предпросмотр && предпросмотр.count > 0 && !предпросмотр.tooMany && ключПредпросмотра === текущийКлюч();
-  $("bc-launch").disabled = !ok;
-  $("bc-launch").textContent = ok ? `Запустить — ${предпросмотр.count} чел.` : "Запустить";
+  // P12-аудит (12.10.2026): пока идёт запуск и минуту после запуска без ответа сервера — кнопка выключена.
+  $("bc-launch").disabled = !ok || запускИдёт || ждатьПослеНеизвестного;
+  $("bc-launch").textContent = ждатьПослеНеизвестного ? "Проверьте историю — кнопка вернётся через минуту"
+    : ok ? `Запустить — ${предпросмотр.count} чел.` : "Запустить";
   if (предпросмотр && ключПредпросмотра !== текущийКлюч()) {
     const box = $("bc-preview-box");
     if (box && !box.querySelector(".stale")) box.insertAdjacentHTML("afterbegin", `<div class="stale sub">Текст или получатели изменились — нажмите «Предпросмотр» ещё раз.</div>`);
   }
 }
 
+/**
+ * P12-аудит (12.10.2026): ВЫБОР ШАБЛОНА НЕ СБРАСЫВАЕТ ФИЛЬТРЫ.
+ * Что ломалось: блок параметров сегмента перерисовывался заново при выборе
+ * шаблона — координатор «Иванова» молча становился «Все координаторы», отметки
+ * этапов пропадали, и рассылка уходила студентам всех координаторов.
+ * Что теперь: перед перерисовкой запоминаем выбранное (координатор, этапы,
+ * мероприятие, слот, номера сделок) и возвращаем, если такой вариант есть.
+ */
 function рисоватьПараметры() {
   const type = $("bc-seg").value;
   const box = $("bc-seg-params");
+  const было = {};
+  ["bc-coord", "bc-group", "bc-slot", "bc-deals"].forEach((id) => { if ($(id)) было[id] = $(id).value; });
+  const былиЭтапы = new Set([...box.querySelectorAll('input[name="bc-stage"]:checked')].map((x) => x.value));
   const groups = (опции && опции.groups) || [];
   const coordSelect = () => `<div class="field"><label for="bc-coord">Координатор</label><select id="bc-coord"><option value="">Все координаторы</option>${((опции && опции.coordinators) || []).map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("")}</select></div>`;
   let html = "";
@@ -433,6 +448,12 @@ function рисоватьПараметры() {
     html = `<div class="field"><label for="bc-deals">Номера сделок amoCRM (через запятую или с новой строки)</label><textarea id="bc-deals" rows="3" placeholder="32604465, 48655641"></textarea><div class="sub">В этом режиме тестовые сделки тоже получают сообщение — удобно для проверки.</div></div>`;
   }
   box.innerHTML = html;
+  Object.keys(было).forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    if (el.tagName === "SELECT" ? [...el.options].some((o) => o.value === было[id]) : true) el.value = было[id];
+  });
+  box.querySelectorAll('input[name="bc-stage"]').forEach((cb) => { if (былиЭтапы.has(cb.value)) cb.checked = true; });
   box.querySelectorAll("select,input,textarea").forEach((el) => el.addEventListener("input", обновитьКнопкуЗапуска));
   box.querySelectorAll("select,input").forEach((el) => el.addEventListener("change", обновитьКнопкуЗапуска));
   обновитьКнопкуЗапуска();
@@ -485,25 +506,61 @@ async function тестСебе(via) {
   }
 }
 
+/**
+ * P12-аудит (12.10.2026): ЗАПУСК БЕЗ ОТВЕТА СЕРВЕРА.
+ * Что ломалось: если сервер рассылку создал, а ответ до страницы не дошёл
+ * (обрыв связи, страница ошибки Google вместо ответа), координатор видел
+ * «Не запущено», кнопка сразу включалась, а повтор уходил с новым requestId —
+ * от второй рассылки спасала только серверная проверка «тот же текст за 10 минут».
+ * Что теперь: один requestId на (сегмент, канал, текст), пока не придёт точный
+ * ответ сервера — повтор сервер узнает и второй рассылки не создаст. При сбое
+ * связи/формата — «результат неизвестен — проверьте историю», история
+ * перечитывается, «Запустить» выключена на минуту.
+ */
 let запускИдёт = false;
+let ждатьПослеНеизвестного = false;
+let запускБезОтвета = null; // { ключ, rid } — запуск, на который не пришёл точный ответ
+
+function ответаНет(err) {
+  return /Failed to fetch|NetworkError|Load failed|Unexpected token|not valid JSON|Unexpected end of|^unknown action/i.test(String((err && err.message) || err || ""));
+}
+
+function текстЧасов(inHours) {
+  return inHours ? "Сейчас рабочее время — рассылки идут." : "Сейчас не рабочее время: рассылки продолжатся в 9:00 по Алматы.";
+}
+
 async function запустить() {
-  if (запускИдёт || !предпросмотр || ключПредпросмотра !== текущийКлюч()) return;
+  if (запускИдёт || ждатьПослеНеизвестного || !предпросмотр || ключПредпросмотра !== текущийКлюч()) return;
   const n = предпросмотр.count;
   if (!window.confirm(`Отправить сообщение ${n} студентам (Telegram ${предпросмотр.tg}, WhatsApp ${предпросмотр.wa})?\n\nОтменить потом можно кнопкой «Остановить» — то, что уже ушло, не вернуть.`)) return;
   запускИдёт = true;
   $("bc-launch").disabled = true;
+  const ключ = текущийКлюч();
+  const requestId = запускБезОтвета && запускБезОтвета.ключ === ключ
+    ? запускБезОтвета.rid
+    : "bc" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  запускБезОтвета = { ключ, rid: requestId };
   try {
-    const requestId = "bc" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     const r = await adminPost("adminBroadcastCreate", { segment: сегмент(), channel: канал(), text: $("bc-text").value, title: $("bc-title").value, confirmCount: n, requestId });
+    запускБезОтвета = null;
     if (r.duplicate) сообщение("Такая рассылка уже создана — второй раз не запускаю.", "warn");
     else сообщение(`Рассылка запущена: ${r.count} получателей.${r.inHours ? "" : " Сейчас не рабочее время — отправка начнётся в 9:00 по Алматы."}`, "ok");
     if (r.warning) сообщение(r.warning, "warn");
+    if (typeof r.inHours === "boolean") $("bc-hours").textContent = текстЧасов(r.inHours);
     предпросмотр = null;
     ключПредпросмотра = "";
     рисоватьПредпросмотр(null);
-    await загрузитьСписок();
+    загрузитьСписок(); // сама показывает «Обновляю историю…»; старый ответ новый уже не перезапишет
   } catch (err) {
-    сообщение("Не запущено: " + понятнаяОшибка(err), "err");
+    if (ответаНет(err)) {
+      ждатьПослеНеизвестного = true;
+      setTimeout(() => { ждатьПослеНеизвестного = false; обновитьКнопкуЗапуска(); }, 60000);
+      сообщение("Сервер не подтвердил запуск (" + понятнаяОшибка(err) + "): результат неизвестен — проверьте историю ниже. Если рассылки там нет, через минуту нажмите «Запустить» ещё раз: повтор пойдёт с тем же номером запроса, второй рассылки сервер не создаст.", "err");
+      загрузитьСписок();
+    } else {
+      запускБезОтвета = null; // точный отказ сервера: ничего не создано
+      сообщение("Не запущено: " + понятнаяОшибка(err), "err");
+    }
   } finally {
     запускИдёт = false;
     обновитьКнопкуЗапуска();
@@ -517,13 +574,62 @@ function прогресс(c) {
     <div class="sub">Отправлено ${c.sent} (Telegram ${c.tg}, WhatsApp ${c.wa}) · в очереди ${c.queued} · не доставлено ${c.failed}${c.unknown ? " · под вопросом " + c.unknown : ""} · пропущено ${c.skipped} · всего ${c.total}</div>`;
 }
 
+/**
+ * P12-аудит (12.10.2026): ИСТОРИЯ РАССЫЛОК.
+ * Что ломалось:
+ *  • после «Запустить» (тост «Рассылка запущена») история ещё секунды
+ *    показывала «Рассылок ещё не было» и старую строку о рабочем времени —
+ *    без всякого «загрузка»; а если медленный ответ первой загрузки страницы
+ *    приходил позже свежего, он затирал новую рассылку пустым списком и
+ *    заодно останавливал опрос раз в 30 с;
+ *  • один неудачный опрос стирал список (с кнопками «Пауза»/«Остановить») и
+ *    опрос больше не возобновлялся;
+ *  • открытое «Подробно» закрывалось при каждом опросе; двойной щелчок по
+ *    «Подробно» во время загрузки закрывал таблицу, а ответ открывал её снова.
+ * Что теперь: у каждой загрузки свой номер — применяется только самый свежий
+ * ответ; пока идёт загрузка — «Обновляю историю…»; при сбое прежний список
+ * остаётся, ошибка — строкой над ним, опрос продолжается; открытые «Подробно»
+ * переживают опрос и обновляются; пока «Подробно» грузится, щелчки по нему не
+ * считаются.
+ */
+let номерСписка = 0;
+let естьИдущие = false; // в последнем удачном ответе была рассылка «идёт»
+const открытыеПодробно = new Set();
+const грузятсяПодробно = new Set();
+const кешПодробно = new Map();
+
+function состояниеСписка(текст, ошибка) {
+  const el = $("bc-list-state");
+  el.className = "sub" + (ошибка ? " err" : "");
+  el.textContent = текст || "";
+}
+
+function запланироватьОпрос() {
+  clearTimeout(таймерСписка);
+  if (естьИдущие) таймерСписка = setTimeout(() => загрузитьСписок().catch(() => {}), 30000);
+}
+
+function ящикПодробно(id) {
+  const item = [...document.querySelectorAll("#bc-list .bc-item")].find((x) => x.dataset.id === id);
+  return item ? item.querySelector(".bc-detail") : null;
+}
+
 async function загрузитьСписок() {
+  const мой = ++номерСписка;
   const box = $("bc-list");
+  clearTimeout(таймерСписка);
+  $("bc-refresh").disabled = true;
+  состояниеСписка("Обновляю историю…");
+  if (!box.querySelector(".bc-item")) box.innerHTML = `<div class="sub">Загрузка…</div>`;
   try {
     const r = await adminGet("adminBroadcastList", null, ТАЙМАУТ_ЗАГРУЗКИ_МС);
-    $("bc-hours").textContent = r.inHours ? "Сейчас рабочее время — рассылки идут." : "Сейчас не рабочее время: рассылки продолжатся в 9:00 по Алматы.";
+    if (мой !== номерСписка) return null; // пока ждали, ушёл более свежий запрос
+    $("bc-hours").textContent = текстЧасов(r.inHours);
+    состояниеСписка("");
     const list = r.broadcasts || [];
-    if (!list.length) { box.innerHTML = `<div class="sub">Рассылок ещё не было.</div>`; return list; }
+    естьИдущие = list.some((b) => b.status === "running");
+    [...открытыеПодробно].forEach((id) => { if (!list.some((b) => b.id === id)) { открытыеПодробно.delete(id); кешПодробно.delete(id); } });
+    if (!list.length) { box.innerHTML = `<div class="sub">Рассылок ещё не было.</div>`; запланироватьОпрос(); return list; }
     box.innerHTML = list.map((b) => `
       <div class="bc-item" data-id="${esc(b.id)}">
         <div class="bc-head"><b>${esc(b.title)}</b><span class="st st-${esc(b.status)}">${esc(СТАТУС[b.status] || b.status)}</span></div>
@@ -540,27 +646,61 @@ async function загрузитьСписок() {
     box.querySelectorAll(".bc-item").forEach((item) => {
       item.querySelectorAll("[data-cmd]").forEach((btn) => btn.addEventListener("click", () => команда(item.dataset.id, btn.dataset.cmd, item, btn)));
     });
-    clearTimeout(таймерСписка);
-    if (list.some((b) => b.status === "running")) таймерСписка = setTimeout(() => загрузитьСписок().catch(() => {}), 30000);
+    открытыеПодробно.forEach((id) => {
+      const d = ящикПодробно(id);
+      if (!d) return;
+      d.innerHTML = кешПодробно.get(id) || `<div class="sub">Загрузка…</div>`;
+      if (!грузятсяПодробно.has(id)) загрузитьПодробно(id);
+    });
+    запланироватьОпрос();
     return list;
   } catch (err) {
-    box.innerHTML = `<div class="sub err">Не удалось загрузить историю: ${esc(понятнаяОшибка(err))}</div>`;
+    if (мой !== номерСписка) return null;
+    if (box.querySelector(".bc-item")) {
+      состояниеСписка("Не удалось обновить историю: " + понятнаяОшибка(err) + ". Показан прежний список — нажмите «Обновить».", true);
+    } else {
+      состояниеСписка("");
+      box.innerHTML = `<div class="sub err">Не удалось загрузить историю: ${esc(понятнаяОшибка(err))}</div>`;
+    }
+    запланироватьОпрос();
     return [];
+  } finally {
+    if (мой === номерСписка) $("bc-refresh").disabled = false;
+  }
+}
+
+async function загрузитьПодробно(id) {
+  грузятсяПодробно.add(id);
+  try {
+    const r = await adminGet("adminBroadcastDetail", { id }, ТАЙМАУТ_ЗАГРУЗКИ_МС);
+    const html = `<table class="users"><thead><tr><th>Кому</th><th>Канал</th><th>Статус</th><th>Причина</th></tr></thead><tbody>${(r.rows || []).map((q) => `
+        <tr><td>${esc(q.name)}<div class="muted">сделка ${esc(q.dealId)}</div></td><td>${q.channel === "tg" ? "Telegram" : "WhatsApp"}</td><td>${esc(СТАТУС_СТРОКИ[q.status] || q.status)}${q.sentAt ? `<div class="muted">${new Date(q.sentAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</div>` : ""}</td><td class="muted">${esc(q.error)}</td></tr>`).join("")}</tbody></table>`;
+    if (!открытыеПодробно.has(id)) return;
+    кешПодробно.set(id, html);
+    const d = ящикПодробно(id);
+    if (d) d.innerHTML = html;
+  } catch (err) {
+    if (!открытыеПодробно.has(id)) return;
+    const d = ящикПодробно(id);
+    if (d && !кешПодробно.has(id)) d.innerHTML = `<div class="sub err">${esc(понятнаяОшибка(err))}</div>`;
+  } finally {
+    грузятсяПодробно.delete(id);
   }
 }
 
 async function команда(id, cmd, item, btn) {
   if (cmd === "detail") {
+    if (грузятсяПодробно.has(id)) return; // ещё грузится — второй щелчок не считаем
     const box = item.querySelector(".bc-detail");
-    if (box.innerHTML) { box.innerHTML = ""; return; }
-    box.innerHTML = `<div class="sub">Загрузка…</div>`;
-    try {
-      const r = await adminGet("adminBroadcastDetail", { id }, ТАЙМАУТ_ЗАГРУЗКИ_МС);
-      box.innerHTML = `<table class="users"><thead><tr><th>Кому</th><th>Канал</th><th>Статус</th><th>Причина</th></tr></thead><tbody>${(r.rows || []).map((q) => `
-        <tr><td>${esc(q.name)}<div class="muted">сделка ${esc(q.dealId)}</div></td><td>${q.channel === "tg" ? "Telegram" : "WhatsApp"}</td><td>${esc(СТАТУС_СТРОКИ[q.status] || q.status)}${q.sentAt ? `<div class="muted">${new Date(q.sentAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</div>` : ""}</td><td class="muted">${esc(q.error)}</td></tr>`).join("")}</tbody></table>`;
-    } catch (err) {
-      box.innerHTML = `<div class="sub err">${esc(понятнаяОшибка(err))}</div>`;
+    if (открытыеПодробно.has(id)) {
+      открытыеПодробно.delete(id);
+      кешПодробно.delete(id);
+      box.innerHTML = "";
+      return;
     }
+    открытыеПодробно.add(id);
+    box.innerHTML = `<div class="sub">Загрузка…</div>`;
+    await загрузитьПодробно(id);
     return;
   }
   if (cmd === "stop" && !window.confirm("Остановить рассылку? Оставшиеся в очереди не получат сообщение. Продолжить её потом будет нельзя.")) return;
@@ -608,6 +748,11 @@ function подготовитьФорму() {
   $("bc-test-wa").title = опции && опции.testWhatsApp ? "" : "Нужна Script Property ADMIN_WHATSAPP_PHONE";
   $("bc-launch").addEventListener("click", запустить);
   $("bc-refresh").addEventListener("click", () => загрузитьСписок());
+  // P12-аудит (12.10.2026): в кабинете вкладка «Рассылки» показывала историю
+  // с момента первого открытия — рассылка, запущенная в другой вкладке, не
+  // появлялась до «Обновить». Теперь кабинет при каждом показе вкладки шлёт
+  // событие panel-show, и история перечитывается. Отдельно страница работает как раньше.
+  window.addEventListener("panel-show", () => загрузитьСписок());
   // Переход из «Студентов» с готовым сегментом: admin-broadcasts.html?segment=cannot_write
   const preset = new URLSearchParams(location.search).get("segment");
   if (preset && [...$("bc-seg").options].some((o) => o.value === preset)) {

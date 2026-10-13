@@ -21,7 +21,12 @@
   <!-- Official Telegram Mini Apps SDK. Safe to load outside Telegram too —
        window.Telegram simply stays undefined and js/services/telegram.js
        no-ops in that case (useful for browser-based development/QA). -->
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- P12-аудит (12.10.2026): defer. Что ломалось: обычный скрипт в <head> останавливал разбор
+       страницы до ответа telegram.org — шапка и всё остальное ждали чужой сервер. С defer
+       скрипт качается параллельно и выполняется после разбора, но ДО модулей приложения
+       (отложенные скрипты и модули идут по порядку в документе), так что window.Telegram к
+       запуску app.js уже есть. Встроенные скрипты ниже window.Telegram не используют. -->
+  <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
 
   <!--
     ПРЕДЗАГРУЗКА МОДУЛЕЙ (14.09.2026).

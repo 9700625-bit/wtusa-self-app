@@ -59,11 +59,15 @@ export async function render(container) {
   // остаются в state для кабинета координатора и уведомлений.
   const greeting = "Добро пожаловать в программу Work & Travel USA";
 
+  // P12-аудит (12.10.2026): этап с важностью «ok» (виза одобрена) — зелёным. Что ломалось:
+  // любой этап с действием рисовался красной точкой и красной полосой, и «Виза J-1 одобрена»
+  // выглядела как тревога. Остальные этапы — как раньше.
+  const хорошо = action.severity === "ok";
   const actionBlockHtml = action.actionRequired
     ? `
-      <div class="card action">
+      <div class="card action"${хорошо ? ' style="border-left-color:var(--ok)"' : ""}>
         <div class="kicker">Сейчас</div>
-        <h2><span class="sev-dot" style="background:var(--danger)"></span>${action.title}</h2>
+        <h2><span class="sev-dot" style="background:${хорошо ? "var(--ok)" : "var(--danger)"}"></span>${action.title}</h2>
         <div class="sub">${action.description}</div>
         ${
           action.cta

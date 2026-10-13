@@ -29,8 +29,12 @@ export async function render(container, params, роутер) {
   // Пока ждали данные, студент открыл другой экран — никуда его не перенаправляем.
   if (роутер && typeof роутер.актуальна === "function" && !роутер.актуальна()) return;
 
+  // P12-аудит (12.10.2026): неизвестный этап — через redirect роутера. Что ломалось: адрес
+  // celebration/<чужой этап> оставался в истории, и кнопка Telegram «Назад» на главной вела
+  // обратно на него, а он снова на главную — «Назад» не работал совсем.
   if (!detail || !copy) {
-    window.location.hash = "home";
+    if (роутер && typeof роутер.redirect === "function") роутер.redirect("home");
+    else window.location.hash = "home";
     return;
   }
 

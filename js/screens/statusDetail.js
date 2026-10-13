@@ -120,7 +120,14 @@ export async function render(container, params) {
             ? `<div class="sub">${[esc(visa.appointmentTime), esc(visa.location)].filter(Boolean).join(" · ")}</div>`
             : `<div class="sub">Координатор сообщит время и место, как только назначит интервью.</div>`
         }
-        ${days !== null && days >= 0 ? `<div class="row" style="margin-top:10px"><div class="sub">До интервью</div><div class="metric">${daysLabel(days)}</div></div>` : ""}
+        ${
+          // P12-аудит (12.10.2026): в день интервью — «сегодня», а не «До интервью 0 дней».
+          days === 0
+            ? `<div class="row" style="margin-top:10px"><div class="sub">Интервью</div><div class="metric">сегодня</div></div>`
+            : days !== null && days > 0
+            ? `<div class="row" style="margin-top:10px"><div class="sub">До интервью</div><div class="metric">${daysLabel(days)}</div></div>`
+            : ""
+        }
       </div>`;
   }
 

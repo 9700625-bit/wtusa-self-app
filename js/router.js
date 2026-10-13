@@ -86,10 +86,15 @@ function parseHash() {
 // Фоновое обновление данных (liveApi, 01.10.2026): пришли свежие —
 // тихо перерисовываем текущий экран. Если человек что-то печатает —
 // не трогаем, чтобы не стереть ввод.
+// P12-аудит (12.10.2026): перерисовка ТИХАЯ. Что ломалось: она шла как обычный переход —
+// экран затемнялся, страница прокручивалась в самый верх (студент читал середину «Оплаты» и
+// через 3 с после открытия его подбрасывало наверх), а «Мероприятия» сбрасывали выбранные
+// день и время. Теперь прокрутка остаётся на месте, затемнения нет, а экран получает
+// признак «тихо» (третий аргумент render) и может сохранить то, что студент начал выбирать.
 window.addEventListener("state-refreshed", () => {
   const a = document.activeElement;
   if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA")) return;
-  render(true);
+  render(true, true);
 });
 
 // НОМЕР ОТРИСОВКИ (05.10.2026). Экраны ждут разные данные и заканчивают не в том
@@ -104,7 +109,16 @@ window.addEventListener("state-refreshed", () => {
 // чек-листа) идут в тот же отброшенный блок и на странице не видны.
 let renderSeq = 0;
 
-async function render(force) {
+/**
+ * P12-аудит (12.10.2026): ВКЛАДКИ НЕ КОПЯТСЯ В ИСТОРИИ «НАЗАД». Что ломалось: каждая вкладка
+ * нижнего меню ложилась в историю, кнопка Telegram «Назад» появлялась на самих вкладках и
+ * водила по ним по кругу (Профиль → Оплата → Документы…). Теперь переход на вкладку (без
+ * параметров) начинает историю заново, и «Назад» на ней скрыт; в историю ложатся только
+ * вложенные экраны — этап, поздравление, конкретное приглашение (event/<id>).
+ */
+const ВКЛАДКИ_ = ["home", "roadmap", "event", "documents", "payments", "profile"];
+
+async function render(force, тихо) {
   if (!containerEl) return;
 
   // Dedup: app.js sets window.location.hash itself for deep links (before
@@ -129,7 +143,10 @@ async function render(force) {
   // that garbage string must never end up in historyStack (goBack() would
   // then navigate to it).
   const currentEntry = resolvedName + (params.length ? "/" + params.join("/") : "");
-  if (historyStack[historyStack.length - 1] !== currentEntry) {
+  if (!params.length && ВКЛАДКИ_.includes(resolvedName)) {
+    historyStack.length = 0;
+    historyStack.push(currentEntry);
+  } else if (historyStack[historyStack.length - 1] !== currentEntry) {
     historyStack.push(currentEntry);
   }
   обновитьКнопкуНазад_();
@@ -138,7 +155,8 @@ async function render(force) {
   const актуальна = () => seq === renderSeq;
   const холст = document.createElement("div");
 
-  containerEl.setAttribute("aria-busy", "true");
+  if (!тихо) containerEl.setAttribute("aria-busy", "true");
+  const прокрутка = window.scrollY;
   // The opacity dim above (see styles.css) only reads as "loading" when
   // there's a previous screen underneath it to dim -- on the very first
   // render, containerEl is still empty, so dimming nothing shows the user a
@@ -151,13 +169,18 @@ async function render(force) {
     containerEl.innerHTML = `<div class="loading-spinner" role="status" aria-label="Загрузка"><span class="spinner-dot"></span></div>`;
   }
   try {
-    await renderFn(холст, params, { актуальна, redirect });
+    await renderFn(холст, params, { актуальна, redirect, тихо: !!тихо });
     if (!актуальна()) return; // пока экран загружался, студент открыл другой
     // Экран, который сам ничего не нарисовал (перенаправил на другой адрес),
     // прежнее содержимое не стирает — его заменит следующий экран.
     if (холст.childNodes.length) {
       containerEl.innerHTML = "";
       containerEl.appendChild(холст);
+    }
+    if (тихо) {
+      window.scrollTo(0, прокрутка); // тихая перерисовка: остаёмся там, где читал студент
+      if (onNavigate) onNavigate(resolvedName, params);
+      return;
     }
   } catch (err) {
     console.error("[router] screen render failed:", resolvedName, err);

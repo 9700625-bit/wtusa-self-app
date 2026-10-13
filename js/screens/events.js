@@ -105,6 +105,9 @@ function getState(ev) {
       selectedSlotId: ev.chosenEventId || (ev.slots.length === 1 ? ev.slots[0].id : null),
       monthCursor: initialDate ? { y: parseYMD(initialDate).y, m: parseYMD(initialDate).m } : { y: 2000, m: 1 },
       overridePicker: false, // set once the student re-opens a confirmed/declined invite to change their answer
+      // P12-аудит: с каким ответом приглашения карточка открывалась — см. сохранитьВыбор_.
+      исходныйСтатус: ev.status,
+      исходныйВыбор: ev.chosenEventId || "",
     });
   }
   return cardState.get(ev.groupId);
@@ -201,9 +204,28 @@ function splitRosterAndExtra_(events) {
   return { rosterEvents, extraEvents };
 }
 
-export async function render(container, params = []) {
+/**
+ * P12-аудит (12.10.2026): ТИХАЯ ПЕРЕРИСОВКА НЕ СБРАСЫВАЕТ ВЫБОР. Что ломалось: через 2–5 с после
+ * открытия приходил свежий список (фоновое обновление), экран рисовался заново и cardState
+ * очищался: студент выбрал день и время, а карточка возвращалась к календарю. Теперь при тихой
+ * перерисовке выбор карточки сохраняется, если приглашение на сервере не поменялось (тот же
+ * ответ) и выбранное время ещё есть в списке. Обычный переход на экран по-прежнему начинает с нуля.
+ */
+function сохранитьВыбор_(прежние, events) {
+  прежние.forEach((st, gid) => {
+    const ev = events.find((x) => String(x.groupId) === String(gid));
+    if (!ev || st.исходныйСтатус !== ev.status || st.исходныйВыбор !== (ev.chosenEventId || "")) return;
+    if (st.selectedSlotId && !ev.slots.some((s) => s.id === st.selectedSlotId)) return;
+    cardState.set(ev.groupId, st);
+  });
+}
+
+export async function render(container, params = [], роутер) {
   const events = (await api.getEvents()).map(withoutPassedSlots_);
+  const тихо = !!(роутер && роутер.тихо);
+  const прежние = тихо ? new Map(cardState) : null;
   cardState.clear();
+  if (прежние) сохранитьВыбор_(прежние, events);
   // ВЫБОР СТУДЕНТА ПОСЛЕ ОБРЫВА (07.10.2026). Ответ сервера не пришёл — список перечитан. Если сервер
   // ответ НЕ записал (статус приглашения прежний), возвращаем карточке выбранные день и время:
   // студенту остаётся нажать кнопку ещё раз, а не выбирать всё заново.
@@ -312,7 +334,10 @@ export async function render(container, params = []) {
     } else if (confirmBtn) {
       doConfirm(container, groupId, state.selectedSlotId, confirmBtn, ev);
     } else if (declineBtn) {
-      doDecline(container, groupId, declineBtn, ev);
+      // P12-аудит (12.10.2026): отказ — только после вопроса. Что ломалось: «Не смогу прийти»
+      // стоит прямо под кнопками времени, и одно случайное касание отменяло запись.
+      if (ответВПути_.has(String(groupId))) return;
+      спроситьОтказ_(ev).then((да) => { if (да) doDecline(container, groupId, declineBtn, ev); });
     }
   });
 
@@ -326,7 +351,8 @@ export async function render(container, params = []) {
   заблокироватьОтветыВПути_(container);
 
   const targetGroupId = params[0];
-  if (targetGroupId) {
+  // Тихая перерисовка (фоновое обновление) к карточке заново не прокручивает — студент уже на месте.
+  if (targetGroupId && !тихо) {
     const targetCard = container.querySelector(`.evt-card[data-group="${CSS.escape(targetGroupId)}"]`);
     if (targetCard) {
       // ПРОКРУТКА К КАРТОЧКЕ — ПОСЛЕ РОУТЕРА (05.10.2026). Роутер, показав экран,
@@ -387,6 +413,38 @@ function заблокироватьОтветыВПути_(container) {
     const прежняя = нажатая ? нажатая.textContent : "";
     if (нажатая) нажатая.textContent = ответ.подпись;
     ответ.копии.push(() => { кнопки.forEach((b) => { b.disabled = false; }); if (нажатая) нажатая.textContent = прежняя; });
+  });
+}
+
+/**
+ * Вопрос перед отказом (P12-аудит, 12.10.2026). Внутри Telegram — его штатное окно showConfirm
+ * (оно не блокирует приложение). Системный window.confirm — только если showConfirm нет или он
+ * не сработал (старый клиент, обычный браузер). Пока окно открыто, второе не открываем: повторный
+ * вызов showConfirm бросает ошибку, и раньше это привело бы к системному окну поверх.
+ */
+let вопросОткрыт_ = false;
+function спроситьОтказ_(ev) {
+  if (вопросОткрыт_) return Promise.resolve(false);
+  const текст = ev.status === "confirmed"
+    ? `Отменить запись на «${ev.title}»? Координатор увидит, что вы не придёте.`
+    : `Отказаться от приглашения на «${ev.title}»? Координатор увидит ваш ответ.`;
+  return new Promise((resolve) => {
+    const tg = window.Telegram && window.Telegram.WebApp;
+    if (tg && typeof tg.showConfirm === "function") {
+      try {
+        вопросОткрыт_ = true;
+        tg.showConfirm(текст, (ok) => { вопросОткрыт_ = false; resolve(!!ok); });
+        return;
+      } catch (err) {
+        вопросОткрыт_ = false;
+        console.warn("[events] showConfirm недоступен, спрашиваю обычным окном:", err);
+      }
+    }
+    try {
+      resolve(typeof window.confirm === "function" ? window.confirm(текст) : true);
+    } catch (err) {
+      resolve(true); // спросить нечем — ведём себя как раньше
+    }
   });
 }
 
