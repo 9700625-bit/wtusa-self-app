@@ -138,7 +138,7 @@ function сообщение(текст, вид) {
     activate(location.hash.replace("#", "") || "link");
   }
 
-  function activate(tab) {
+  function activate(tab, безПоказа) {
     // Только свои три вкладки: «#constructor» и подобные адреса раньше давали пустой кабинет.
     if (!Object.prototype.hasOwnProperty.call(SRC, tab)) tab = "link";
     document.querySelectorAll(".panel-tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
@@ -149,7 +149,7 @@ function сообщение(текст, вид) {
       if (on && !f.src) f.src = SRC[tab];
       // P12-аудит (12.10.2026): уже открытой вкладке сообщаем, что её снова
       // показали, — «Рассылки» перечитывают историю (см. panel-show там).
-      else if (on && былаСкрыта) {
+      else if (on && былаСкрыта && !безПоказа) {
         try { f.contentWindow.dispatchEvent(new Event("panel-show")); } catch (e) {}
       }
     });
@@ -179,6 +179,8 @@ function сообщение(текст, вид) {
       }
       f.classList.remove("active");
       f.src = src;
+      activate(tab, true); // волна 4: страница перезагружается — «panel-show» старой странице давал лишний запрос
+      return true;
     }
     activate(tab);
     return true;

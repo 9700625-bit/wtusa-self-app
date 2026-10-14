@@ -604,17 +604,30 @@ function состояниеСписка(текст, ошибка) {
   el.textContent = текст || "";
 }
 
+// ОПРОС ТОЛЬКО ПОКА ВИДНО (волна 4, 14.10.2026). Раньше вкладка опрашивала сервер раз в 30 с,
+// пока идёт рассылка, — даже скрытая (другая вкладка кабинета, свёрнутое окно) и всю ночь, когда
+// рассылка всё равно спит до 9:00: до ~1 400 лишних запросов за ночь. Теперь: страница не видна —
+// опрос стоит (вернулись — список перечитывается сразу); ночью — раз в 5 минут. Триггер рассылки
+// при этом чинит и ежечасная проверка на сервере (bcSelfHeal_), так что скрытая вкладка ему не нужна.
+let последнийInHours = true;
+function страницаВидна() {
+  if (document.hidden) return false;
+  try { const f = window.frameElement; if (f && f.offsetParent === null) return false; } catch (e) { /* другой источник — считаем видимой */ }
+  return true;
+}
 function запланироватьОпрос() {
   clearTimeout(таймерСписка);
-  if (естьИдущие) таймерСписка = setTimeout(() => загрузитьСписок().catch(() => {}), 30000);
+  if (!естьИдущие || !страницаВидна()) return;
+  таймерСписка = setTimeout(() => { if (страницаВидна()) загрузитьСписок().catch(() => {}); }, последнийInHours ? 30000 : 300000);
 }
+document.addEventListener("visibilitychange", () => { if (страницаВидна() && естьИдущие) загрузитьСписок().catch(() => {}); });
 
 function ящикПодробно(id) {
   const item = [...document.querySelectorAll("#bc-list .bc-item")].find((x) => x.dataset.id === id);
   return item ? item.querySelector(".bc-detail") : null;
 }
 
-async function загрузитьСписок() {
+async function загрузитьСписок(готовыйЗапрос) {
   const мой = ++номерСписка;
   const box = $("bc-list");
   clearTimeout(таймерСписка);
@@ -622,9 +635,10 @@ async function загрузитьСписок() {
   состояниеСписка("Обновляю историю…");
   if (!box.querySelector(".bc-item")) box.innerHTML = `<div class="sub">Загрузка…</div>`;
   try {
-    const r = await adminGet("adminBroadcastList", null, ТАЙМАУТ_ЗАГРУЗКИ_МС);
+    const r = await (готовыйЗапрос || adminGet("adminBroadcastList", null, ТАЙМАУТ_ЗАГРУЗКИ_МС));
     if (мой !== номерСписка) return null; // пока ждали, ушёл более свежий запрос
     $("bc-hours").textContent = текстЧасов(r.inHours);
+    последнийInHours = r.inHours !== false;
     состояниеСписка("");
     const list = r.broadcasts || [];
     естьИдущие = list.some((b) => b.status === "running");
@@ -861,6 +875,10 @@ function loadMain() {
 
 async function первичнаяЗагрузка() {
   показатьЗагрузку();
+  // Ускорение (14.10.2026): историю рассылок запрашиваем сразу, параллельно с настройками формы —
+  // раньше второй запрос ждал первый (~3 с лишних на каждое открытие вкладки).
+  const историяЗаранее = adminGet("adminBroadcastList", null, ТАЙМАУТ_ЗАГРУЗКИ_МС);
+  историяЗаранее.catch(() => {}); // ошибку покажет загрузитьСписок; здесь — только чтобы не было «необработанного отказа»
   try {
     опции = await adminGet("adminBroadcastOptions", null, ТАЙМАУТ_ЗАГРУЗКИ_МС);
   } catch (err) {
@@ -890,7 +908,7 @@ async function первичнаяЗагрузка() {
   показатьЭкран("main");
 
   подготовитьФорму();
-  загрузитьСписок();
+  загрузитьСписок(историяЗаранее);
 }
 
 init();

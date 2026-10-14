@@ -407,7 +407,8 @@ const ТАЙМАУТ_ПРИВЯЗКИ_МС = 60000;
 export async function linkAccount(token) {
     try {
         const result = await apiPost("link", { token }, ТАЙМАУТ_ПРИВЯЗКИ_МС);
-        invalidateState();
+        // Волна 4: уже был привязан — данные не менялись, кеш не сбрасываем (иначе лишний запрос state ~3 с).
+        if (!(result && result.alreadyLinked && !result.seeded)) invalidateState();
         return result;
     } catch (err) {
         if (String(err && err.message) === "TIMEOUT") {

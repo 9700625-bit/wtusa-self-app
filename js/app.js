@@ -164,6 +164,12 @@ async function показатьОшибкуПривязки_(err, token) {
         подставитьСезонВШапку();
       } catch (e2) {
         console.error("[app] retry linking failed:", e2);
+        // Волна 4: как при первом входе — студент уже подключён (или аккаунт отвечает) — пускаем внутрь.
+        let пустить = String(e2 && e2.message).indexOf("Вы уже подключены") !== -1;
+        if (!пустить && !/^(OFFLINE|TIMEOUT|BACKEND_HTML)$/.test(String(e2 && e2.message))) {
+          try { await api.getMe(); пустить = true; } catch (ignore) { /* не подключён */ }
+        }
+        if (пустить) { initRouter(contentEl); подставитьСезонВШапку(); return; }
         await показатьОшибкуПривязки_(e2, token);
       }
     });
@@ -183,7 +189,7 @@ async function handleStartParam() {
     // подтверждаем в фоне (раньше каждый такой вход ждал сервер ~3 с).
     if (api.hasSavedState()) {
       api.linkAccount(startParam.rest)
-        .then(() => window.dispatchEvent(new Event("state-refreshed")))
+        .then((r) => { if (!(r && r.alreadyLinked && !r.seeded)) window.dispatchEvent(new Event("state-refreshed")); })
         .catch((err) => console.warn("[app] background re-link:", err));
       return;
     }
