@@ -111,3 +111,7 @@ export async function _debugGetCurrentStageId() {
 export function hasSavedState() {
     return isLiveBackendConfigured() && liveApi.hasSavedState();
 }
+// Волна 5 (B-09): эту ссылку сервер уже подтвердил для этого аккаунта, и его данные сохранены на телефоне.
+export function linkAlreadyConfirmed(token) {
+    return isLiveBackendConfigured() && liveApi.linkAlreadyConfirmed(token);
+}

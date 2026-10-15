@@ -10,7 +10,7 @@
  */
 
 import { BACKEND_URL } from "./config.js";
-import { getInitData } from "./telegram.js";
+import { getInitData, getTelegramUserId, telegramReady } from "./telegram.js";
 import { deriveDashboard, deriveRoadmap, deriveStageDetail, derivePayments } from "./deriveViews.js";
 
 let stateCache = null;
@@ -83,17 +83,51 @@ async function запросить_(url, options, таймаутМс) {
     return json;
 }
 
+/**
+ * Волна 5 (аудит 14.10.2026, B-10, B-65): ЗАПРОС ЖДЁТ SDK TELEGRAM, НО НЕ ВЕЧНО.
+ * SDK теперь грузится async, поэтому перед запросом ждём его (telegramReady — не дольше 6 с);
+ * не дождались — берём данные запуска из адреса (getInitData). Данных запуска нет совсем —
+ * на сервер не ходим: вне Telegram (SDK есть, а initData пустая) — NOT_IN_TELEGRAM, раньше это
+ * был запрос с пустой initData и ложное «Сеанс устарел»; SDK не скачался — TG_SDK_FAILED.
+ * Тексты для студента — в router.js.
+ */
+async function initDataДляЗапроса_() {
+    await telegramReady();
+    const initData = getInitData();
+    if (initData) return initData;
+    throw new Error(window.Telegram && window.Telegram.WebApp ? "NOT_IN_TELEGRAM" : "TG_SDK_FAILED");
+}
+
 async function apiGet(action, extraParams) {
-    const params = new URLSearchParams({ action, initData: getInitData(), ...(extraParams || {}) });
+    const params = new URLSearchParams({ action, initData: await initDataДляЗапроса_(), ...(extraParams || {}) });
     return запросить_(`${BACKEND_URL}?${params.toString()}`, { method: "GET" });
 }
 
 async function apiPost(action, payload, таймаутМс) {
+    const initData = await initDataДляЗапроса_();
     return запросить_(`${BACKEND_URL}?action=${encodeURIComponent(action)}`, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" }, // see CORS note above
-          body: JSON.stringify({ initData: getInitData(), ...(payload || {}) }),
+          body: JSON.stringify({ initData, ...(payload || {}) }),
     }, таймаутМс);
+}
+
+/**
+ * Волна 5 (аудит 14.10.2026, B-26, SEC-4): state и events — POST-ом: initData (вход студента) в теле, а не в адресе
+ * (адрес оседает в журналах прокси, истории и Referer). text/plain — простой запрос, без preflight, как остальные
+ * действия. Старый сервер POST state не знает («unknown action (POST)») — тогда GET, как раньше, до перезагрузки.
+ */
+let чтениеPost_ = true;
+async function apiRead_(action) {
+    if (чтениеPost_) {
+        try {
+            return await apiPost(action);
+        } catch (err) {
+            if (!/unknown action \(POST\)/.test(String(err && err.message))) throw err;
+            чтениеPost_ = false;
+        }
+    }
+    return apiGet(action);
 }
 
 // МГНОВЕННЫЙ ПОКАЗ ИЗ ПАМЯТИ ТЕЛЕФОНА (01.10.2026, ТЗ ускорения, п. 3.1).
@@ -101,14 +135,19 @@ async function apiPost(action, payload, таймаутМс) {
 // 0,2–0,7 с). Поэтому последний ответ сохраняем в localStorage и при
 // следующем открытии рисуем экран сразу из него, а свежие данные тянем в
 // фоне. Пришли другие — событие "state-refreshed", роутер перерисует экран.
-// Ключ привязан к telegram id (чужих данных не покажем), старше 7 дней —
+// Ключ привязан к telegram id (чужих данных не покажем), старше 3 дней (волна 5: было 7) —
 // не показываем. localStorage в некоторых webview недоступен — всё в try.
 const DISK_KEY_PREFIX_ = "wtusa_state_v1_";
-const DISK_MAX_AGE_MS_ = 7 * 24 * 3600 * 1000;
+// Волна 5 (аудит 14.10.2026, SEC-7): 7 дней → 3. Копия на телефоне — это ФИО, платежи и комментарии координатора; на
+// общем компьютере (Telegram Desktop / Web) она лежала неделю. Студент, открывающий приложение хотя бы раз в 3 дня,
+// разницы не заметит (копия обновляется при каждом открытии); реже — первый экран ждёт сервер (~1–3 с), как при первом входе.
+const DISK_MAX_AGE_MS_ = 3 * 24 * 3600 * 1000;
+// Волна 5 (B-10): id — из SDK, а пока SDK нет — из данных запуска в адресе (getTelegramUserId):
+// копия на телефоне рисуется сразу, не дожидаясь telegram.org, и только того аккаунта, который открыл приложение.
 function diskKey_() {
     try {
-        const u = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user;
-        return u && u.id ? DISK_KEY_PREFIX_ + u.id : null;
+        const id = getTelegramUserId();
+        return id ? DISK_KEY_PREFIX_ + id : null;
     } catch (e) { return null; }
 }
 function diskLoad_() {
@@ -130,7 +169,8 @@ function diskSave_(data) {
 function diskClear_() {
     // 06.10.2026: вместе с состоянием стираем и сохранённые мероприятия (ключ …_ev) — раньше
     // после отзыва доступа они оставались на устройстве.
-    try { const k = diskKey_(); if (k) { localStorage.removeItem(k); localStorage.removeItem(k + "_ev"); } } catch (e) { /* ignore */ }
+    // Волна 5 (B-09): и отметки «ссылка подтверждена» (…_lk) — без сохранённых данных ссылку снова проверяет сервер.
+    try { const k = diskKey_(); if (k) { localStorage.removeItem(k); localStorage.removeItem(k + "_ev"); localStorage.removeItem(k + "_lk"); } } catch (e) { /* ignore */ }
 }
 // УСТАРЕВШИЕ КОПИИ УДАЛЯЕМ, А НЕ ТОЛЬКО НЕ ПОКАЗЫВАЕМ (06.10.2026). Копия старше 7 дней не
 // показывалась, но оставалась в памяти браузера навсегда — с ФИО, платежами и комментариями
@@ -150,9 +190,10 @@ function diskClear_() {
     } catch (e) { /* хранилище недоступно */ }
 })();
 let fromDisk_ = false;
+let idКопии_ = null; // чья копия с телефона сейчас в памяти (Волна 5, B-10)
 (function () {
     const saved = diskLoad_();
-    if (saved) { stateCache = saved; stateCacheAt = 0; fromDisk_ = true; }
+    if (saved) { delete saved.events; stateCache = saved; stateCacheAt = 0; fromDisk_ = true; idКопии_ = getTelegramUserId(); } // events — в своём ключе …_ev
 })();
 
 /**
@@ -165,18 +206,21 @@ let fromDisk_ = false;
  * начатый при другой версии, в кеш не кладём — сразу перезапрашиваем.
  */
 let stateEpoch = 0;
+let stateИзLink_ = -1; // Волна 5 (B-08): номер версии, при которой state пришёл в ответе link (свежее ответов, ушедших до него)
 function fetchState_() {
     if (statePromise) return statePromise;
     const эпоха = stateEpoch;
-    const p = apiGet("state").then(
+    const эпохаСобытий = eventsEpoch;
+    const p = apiRead_("state").then(
         (json) => {
             if (statePromise === p) statePromise = null;
-            if (эпоха !== stateEpoch) return fetchState_(); // устарел, пока шёл, — перезапрос
-            stateCache = json;
+            const state = разобратьState_(json, эпохаСобытий); // Волна 5 (B-06): мероприятия из ответа — в свой кеш
+            if (эпоха !== stateEpoch) return stateИзLink_ === stateEpoch && stateCache ? stateCache : fetchState_(); // устарел, пока шёл, — перезапрос (state из ответа link новее — его и отдаём)
+            stateCache = state;
             stateCacheAt = Date.now();
             fromDisk_ = false;
-            diskSave_(json);
-            return json;
+            diskSave_(state);
+            return state;
         },
         (err) => {
             if (statePromise === p) statePromise = null;
@@ -195,10 +239,12 @@ function безМетки_(data) {
 /** Свежие данные — в фоне, один запрос на всех; пришли другие — тихо перерисовываем экран. */
 function обновитьВФоне_() {
     if (statePromise) return;
-    const before = безМетки_(stateCache);
+    // Волна 5 (B-06): ответ state приносит и мероприятия — перерисовываем, если изменилось что-то одно.
+    const снимок = () => безМетки_(stateCache) + "|" + JSON.stringify(eventsCache);
+    const before = снимок();
     fetchState_()
-        .then((json) => {
-            if (безМетки_(json) !== before) window.dispatchEvent(new Event("state-refreshed"));
+        .then(() => {
+            if (снимок() !== before) window.dispatchEvent(new Event("state-refreshed"));
         })
         .catch((err) => {
             // Доступ отозван — стираем сохранённое и даём экрану показать ошибку.
@@ -395,6 +441,33 @@ export function hasSavedState() {
     return fromDisk_ && !!stateCache;
 }
 
+/**
+ * Волна 5 (аудит 14.10.2026, B-09): «ССЫЛКА УЖЕ ПОДТВЕРЖДЕНА». Студенты открывают приложение той же ссылкой из
+ * WhatsApp, и каждый такой вход слал link (замок на сервере, 3–5 полных чтений листов) — хотя сервер давно ответил
+ * «уже привязан». Теперь после успешного ответа link токен запоминается рядом с сохранёнными данными студента
+ * (…_lk, тот же telegram id); пока эти данные есть, повторный вход той же ссылкой link не шлёт. Данных нет
+ * (новый телефон, очистка, отзыв доступа — diskClear_) — ссылку проверяет сервер, как раньше: досев после
+ * оборванной первой привязки и досинхронизация продолжают работать.
+ */
+const ССЫЛОК_ПОМНИМ_ = 5;
+function ссылкиКлюч_() { const k = diskKey_(); return k ? k + "_lk" : null; }
+function запомнитьСсылку_(token) {
+    try {
+        const k = ссылкиКлюч_(); if (!k || !token) return;
+        const saved = JSON.parse(localStorage.getItem(k) || "null");
+        const list = (saved && Array.isArray(saved.tokens) ? saved.tokens : []).filter((t) => t !== String(token));
+        list.push(String(token));
+        localStorage.setItem(k, JSON.stringify({ at: Date.now(), tokens: list.slice(-ССЫЛОК_ПОМНИМ_) }));
+    } catch (e) { /* хранилище недоступно — проверит сервер */ }
+}
+export function linkAlreadyConfirmed(token) {
+    if (!hasSavedState() || !token) return false;
+    try {
+        const saved = JSON.parse(localStorage.getItem(ссылкиКлюч_()) || "null");
+        return !!(saved && Array.isArray(saved.tokens) && saved.tokens.indexOf(String(token)) !== -1);
+    } catch (e) { return false; }
+}
+
 // ПОДКЛЮЧЕНИЕ НЕ ОБРЫВАЕМ ЧЕРЕЗ 25 С (01.10.2026). Привязка на сервере — это
 // запись в таблицу + заметка/тег в amoCRM + подтягивание платежей и документов
 // из сделки, с холодным стартом бывает дольше 25 с. Студент видел «Сервер долго
@@ -406,9 +479,27 @@ export function hasSavedState() {
 const ТАЙМАУТ_ПРИВЯЗКИ_МС = 60000;
 export async function linkAccount(token) {
     try {
-        const result = await apiPost("link", { token }, ТАЙМАУТ_ПРИВЯЗКИ_МС);
-        // Волна 4: уже был привязан — данные не менялись, кеш не сбрасываем (иначе лишний запрос state ~3 с).
-        if (!(result && result.alreadyLinked && !result.seeded)) invalidateState();
+        // Волна 5 (аудит 14.10.2026, B-08): withState — сервер кладёт state студента (с мероприятиями) прямо в
+        // ответ link: экран рисуется без второго круга за state и events. Старый сервер поле не знает — ответ прежний.
+        const result = await apiPost("link", { token, withState: true }, ТАЙМАУТ_ПРИВЯЗКИ_МС);
+        const данныеИзменились = !(result && result.alreadyLinked && !result.seeded);
+        if (result && result.state && typeof result.state === "object" && result.state.participant) {
+            // Данные изменились (привязка, досев) — ответы, ушедшие до неё, в кеш не попадут (номер версии).
+            // Не изменились — state из ответа кладём, только если свежий запрос state сейчас не идёт.
+            if (данныеИзменились) { stateEpoch++; statePromise = null; stateИзLink_ = stateEpoch; }
+            if (данныеИзменились || !statePromise) {
+                if (данныеИзменились) { eventsEpoch++; eventsPromise = null; }
+                stateCache = разобратьState_(result.state, eventsEpoch);
+                stateCacheAt = Date.now();
+                fromDisk_ = false;
+                diskSave_(stateCache);
+                result.stateApplied = true;
+            }
+        } else if (данныеИзменились) {
+            // Волна 4: уже был привязан — данные не менялись, кеш не сбрасываем (иначе лишний запрос state ~3 с).
+            invalidateState();
+        }
+        запомнитьСсылку_(token);
         return result;
     } catch (err) {
         if (String(err && err.message) === "TIMEOUT") {
@@ -449,7 +540,7 @@ let eventsFromDisk_ = false;
     try {
         const k = diskKey_(); if (!k) return;
         const saved = JSON.parse(localStorage.getItem(k + "_ev") || "null");
-        if (saved && saved.data && Date.now() - saved.at < DISK_MAX_AGE_MS_) { eventsCache = saved.data; eventsCacheAt = 0; eventsFromDisk_ = true; }
+        if (saved && saved.data && Date.now() - saved.at < DISK_MAX_AGE_MS_) { eventsCache = saved.data; eventsCacheAt = 0; eventsFromDisk_ = true; idКопии_ = getTelegramUserId(); }
     } catch (e) { /* ignore */ }
 })();
 
@@ -462,12 +553,44 @@ let eventsFromDisk_ = false;
  * выбрасывается и список перезапрашивается; сохранённая копия после ответа стирается.
  */
 let eventsEpoch = 0;
+
+/**
+ * Волна 5 (аудит 14.10.2026, B-06): МЕРОПРИЯТИЯ ПРИХОДЯТ ВМЕСТЕ СО STATE. Новый сервер кладёт список в ответ state
+ * (поле events) — открытие приложения стало одним запросом вместо двух (state + events). Что умеет сервер,
+ * запоминаем (wtusa_evst: 1 — присылает, 0 — старый сервер): со старым всё как раньше — отдельный запрос events
+ * параллельно со state; первый вход, пока неизвестно, — ждём ответ state, и только если в нём списка нет,
+ * спрашиваем events отдельно. Маршрут events остаётся для перечитывания (после ошибки записи и т. п.).
+ */
+const СЕРВЕР_EVST_KEY_ = "wtusa_evst";
+let событияВState_ = null;
+try { const v = localStorage.getItem(СЕРВЕР_EVST_KEY_); событияВState_ = v === "1" ? true : v === "0" ? false : null; } catch (e) { /* неизвестно */ }
+function принятьСобытия_(list, эпохаСобытий) {
+    if (эпохаСобытий !== eventsEpoch) return; // студент ответил на приглашение, пока шёл запрос, — список устарел
+    eventsCache = list;
+    eventsCacheAt = Date.now();
+    eventsFromDisk_ = false;
+    try { const k = diskKey_(); if (k) localStorage.setItem(k + "_ev", JSON.stringify({ at: Date.now(), data: list })); } catch (e) { /* ignore */ }
+}
+/** Ответ state → state без поля events; мероприятия — в свой кеш. Заодно запоминаем, присылает ли их сервер. */
+function разобратьState_(json, эпохаСобытий) {
+    const есть = !!json && Array.isArray(json.events);
+    if (событияВState_ !== есть) {
+        событияВState_ = есть;
+        try { localStorage.setItem(СЕРВЕР_EVST_KEY_, есть ? "1" : "0"); } catch (e) { /* ignore */ }
+    }
+    if (!есть) return json;
+    принятьСобытия_(json.events, эпохаСобытий);
+    const state = { ...json };
+    delete state.events;
+    return state;
+}
+
 function fetchEvents_() {
     // Склейка параллельных вызовов — та же причина, что и у getState выше:
     // экран может спросить события дважды в один тик.
     if (eventsPromise) return eventsPromise;
     const эпоха = eventsEpoch;
-    const p = apiGet("events").then(
+    const p = apiRead_("events").then(
         (json) => {
             if (eventsPromise === p) eventsPromise = null;
             if (эпоха !== eventsEpoch) return fetchEvents_(); // устарел, пока шёл, — перезапрос
@@ -486,19 +609,39 @@ function fetchEvents_() {
     return p;
 }
 
+function обновитьСобытияВФоне_() {
+    if (eventsPromise || !eventsCache) return;
+    // Волна 5 (B-06): новый сервер присылает список вместе со state — обновляем state (один запрос на всё);
+    // ответ оказался без списка (старый сервер) — тогда отдельным запросом, как раньше.
+    if (событияВState_ !== false) {
+        if (!statePromise) обновитьВФоне_();
+        if (statePromise) { statePromise.then(() => { if (событияВState_ === false) обновитьСобытияВФоне_(); }, () => {}); return; }
+    }
+    const before = JSON.stringify(eventsCache);
+    fetchEvents_()
+        .then((fresh) => { if (JSON.stringify(fresh) !== before) window.dispatchEvent(new Event("state-refreshed")); })
+        .catch(() => {});
+}
+
 export async function getEvents() {
     // Из памяти телефона или старше 5 минут — отдаём сразу, свежие — в фоне;
     // пришли другие — перерисовываем экран (как для state).
     if (eventsCache && (eventsFromDisk_ || Date.now() - eventsCacheAt >= EVENTS_CACHE_MS)) {
-        if (!eventsPromise) {
-            const before = JSON.stringify(eventsCache);
-            fetchEvents_()
-                .then((fresh) => { if (JSON.stringify(fresh) !== before) window.dispatchEvent(new Event("state-refreshed")); })
-                .catch(() => {});
-        }
+        обновитьСобытияВФоне_();
         return eventsCache;
     }
     if (eventsCache) return eventsCache;
+    // Волна 5 (B-06, PERF-5, PERF-7): списка нет, а state ещё не пришёл — список придёт в том же ответе: ждём его,
+    // а не шлём второй запрос (главная не ждёт мероприятия отдельно; неприглашённому — один запрос state).
+    // Старый сервер (событияВState_ === false) — отдельный запрос сразу, как раньше.
+    if (событияВState_ !== false && (statePromise || !stateCache)) {
+        try {
+            await (statePromise || fetchState_());
+        } catch (err) {
+            if (событияВState_ !== false) throw err; // NOT_INVITED, нет сети — отдельный запрос не поможет
+        }
+        if (eventsCache) return eventsCache;
+    }
     return fetchEvents_();
 }
 
@@ -523,6 +666,57 @@ export async function respondEvent(groupId, choice, chosenEventId) {
         сброситьСобытия_();
         throw err;
     }
-    сброситьСобытия_(); // ответ студента меняет список — показываем свежий
+    // Волна 5 (аудит 14.10.2026, B-37): новый сервер присылает обновлённое приглашение (со «Свободно мест») —
+    // правим список на месте, без перечитывания. Нет его (старый сервер) — сбрасываем и перечитываем, как раньше.
+    const ev = result && result.event;
+    if (ev && String(ev.groupId) === String(groupId) && Array.isArray(ev.slots) && Array.isArray(eventsCache) && eventsCache.some((g) => String(g.groupId) === String(groupId))) {
+        const былоСДиска = eventsFromDisk_; // список с телефона: остальные приглашения ещё обновятся в фоне
+        eventsEpoch++; // ответ, ушедший до записи, список не затрёт
+        eventsPromise = null;
+        принятьСобытия_(eventsCache.map((g) => (String(g.groupId) === String(groupId) ? ev : g)), eventsEpoch);
+        eventsFromDisk_ = былоСДиска;
+    } else {
+        сброситьСобытия_(); // ответ студента меняет список — показываем свежий
+    }
     return result;
 }
+
+/**
+ * Волна 5 (аудит 14.10.2026, B-10): КОПИЯ С ТЕЛЕФОНА — ТОЛЬКО ТОГО АККАУНТА, КОТОРЫЙ ОТКРЫЛ.
+ * До прихода SDK копия выбирается по id из данных запуска в адресе. Когда SDK загрузился,
+ * сверяем: если он сообщил другой аккаунт, копию из памяти выбрасываем (ответы в пути — тоже,
+ * через номера версий), экран очищается и рисуется заново уже по данным сервера.
+ */
+function сверитьАккаунт_() {
+    if (!idКопии_) return;
+    const app = window.Telegram && window.Telegram.WebApp;
+    const u = app && app.initDataUnsafe && app.initDataUnsafe.user;
+    if (!u || !u.id) return; // SDK не подтвердил аккаунт — сверять не с чем
+    if (String(u.id) === String(idКопии_)) { idКопии_ = null; return; }
+    idКопии_ = null;
+    stateEpoch++; statePromise = null; stateCache = null; fromDisk_ = false;
+    eventsEpoch++; eventsPromise = null; eventsCache = null; eventsFromDisk_ = false;
+    window.dispatchEvent(new Event("account-changed"));
+}
+telegramReady().then(сверитьАккаунт_, () => {});
+window.addEventListener("telegram-ready", сверитьАккаунт_);
+
+/**
+ * Волна 5 (аудит 14.10.2026, B-46): ВОЗВРАТ В ОТКРЫТОЕ ПРИЛОЖЕНИЕ. Что ломалось: студент получил
+ * в чате «Платёж получен», вернулся в уже открытый Mini App — и видел старый статус, пока не
+ * перейдёт на другой экран после 5 минут или не переоткроет приложение.
+ * Теперь, если приложение было скрыто дольше минуты, данные тихо перечитываются тем же фоновым
+ * путём, что и при открытии из памяти телефона: один запрос на всех (идущий не дублируется),
+ * ответ, прочитанный до действия студента, не затирает его (номера версий), экран
+ * перерисовывается без затемнения и только если данные изменились.
+ */
+const ПЕРЕЧИТАТЬ_ПОСЛЕ_СКРЫТИЯ_МС = 60 * 1000;
+let скрытоС_ = 0;
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { if (!скрытоС_) скрытоС_ = Date.now(); return; }
+    const было = скрытоС_;
+    скрытоС_ = 0;
+    if (!было || Date.now() - было <= ПЕРЕЧИТАТЬ_ПОСЛЕ_СКРЫТИЯ_МС) return;
+    if (stateCache) обновитьВФоне_();
+    обновитьСобытияВФоне_();
+});

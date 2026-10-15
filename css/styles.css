@@ -17,6 +17,11 @@ button,input,select,textarea{font-family:inherit;font-size:inherit;line-height:i
    переносится длинное название слева. */
 #brand-season{white-space:nowrap;flex:none}
 .brand b{font-size:15px;letter-spacing:.02em}
+/* Волна 5 (аудит 14.10.2026, B-69): длинная программа («Work & Travel USA Summer 2027») на 320 px
+   выталкивала плашку за край — страница становилась шире экрана (328 px). Плашка по-прежнему не
+   переносится, но не шире ~половины шапки: лишнее — многоточием (полный текст — в подсказке). */
+#brand-season{flex:0 1 auto;min-width:0;max-width:48%;overflow:hidden;text-overflow:ellipsis}
+.brand b{min-width:0;overflow-wrap:anywhere}
 .pill{font-size:12px;padding:6px 10px;border:1px solid rgba(255,255,255,.25);border-radius:999px;background:rgba(255,255,255,.08)}
 .content{padding:16px}
 .screen{display:none}
@@ -186,6 +191,10 @@ select#doc-select{width:100%;border:1px solid var(--line);background:#fff}
    made and these are secondary. */
 .evt-links-row{display:flex;justify-content:center;gap:18px;margin-top:14px}
 .evt-links-row button{background:none;border:0;padding:4px;color:var(--muted);font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit}
+/* Волна 5 (аудит 14.10.2026, B-69): зона нажатия ссылок 23 px → 44 px (рекомендация Apple/Telegram).
+   Выглядят по-прежнему ссылками; отступ над строкой уменьшен, чтобы карточка не выросла. */
+.evt-links-row{margin-top:4px}
+.evt-links-row button{min-height:44px;padding:0 8px}
 .evt-links-row button:hover{color:var(--navy)}
 .evt-links-row button.danger:hover{color:var(--danger)}
 
@@ -214,6 +223,8 @@ select#doc-select{width:100%;border:1px solid var(--line);background:#fff}
 .evt-day-label{font-size:12px;font-weight:800;color:var(--navy);margin-bottom:9px}
 
 .evt-back-link{background:none;border:0;color:var(--muted);font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;padding:4px 0;display:inline-block}
+/* Волна 5 (B-69): «‹ Выбрать другое время» — зона нажатия 44 px, текст на прежнем месте. */
+.evt-back-link{min-height:44px;padding:0 8px 0 0;margin:-6px 0 -10px;display:inline-flex;align-items:center}
 .evt-back-link:hover{color:var(--navy)}
 
 /* ---------------- Demo panel (Phase 1 prototype only) ---------------- */

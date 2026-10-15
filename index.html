@@ -2,6 +2,14 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
+  <!-- Волна 5 (аудит 14.10.2026, B-72, SEC-9): политика безопасности (CSP). GitHub Pages заголовков не ставит —
+       поэтому meta, и она стоит до любого скрипта и стиля. Скрипты — только свои и SDK telegram.org; запросы — только
+       к своему сайту и бэкенду Apps Script (script.google.com и его ответы-редиректы на script.googleusercontent.com):
+       внедрённый скрипт не сможет отправить данные студента на чужой сервер ни fetch-ем, ни картинкой.
+       'unsafe-inline' для скриптов и стилей — осознанно: на странице есть обработчики в разметке (onload/onerror у SDK,
+       onclick «Обновить»), а хеши для них требуют 'unsafe-hashes', которого нет в старых webview Telegram (iOS < 15.4) —
+       там приложение перестало бы запускаться. frame-ancestors в meta не работает (защита от встраивания — скрипт ниже). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://script.google.com https://script.googleusercontent.com; object-src 'none'; base-uri 'self'; form-action 'none'" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Work & Travel USA — SELF</title>
   <!-- ОДИН ШРИФТ ВЕЗДЕ (22.09.2026). В css/styles.css первым стоял Inter, но
@@ -26,7 +34,17 @@
        скрипт качается параллельно и выполняется после разбора, но ДО модулей приложения
        (отложенные скрипты и модули идут по порядку в документе), так что window.Telegram к
        запуску app.js уже есть. Встроенные скрипты ниже window.Telegram не используют. -->
-  <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
+  <!-- Волна 5 (аудит 14.10.2026, B-10): async вместо defer. Что ломалось: defer-скрипт и модули
+       выполняются строго по порядку, поэтому при медленном telegram.org (2 с) даже экран из памяти
+       телефона ждал 2 с, а при зависшем SDK страница оставалась пустой (DOMContentLoaded не наступал,
+       страховка ниже не срабатывала). Теперь SDK качается и выполняется сам по себе, приложение
+       стартует сразу и ждёт SDK только перед запросами к серверу (js/services/telegram.js,
+       telegramReady). Метки onload/onerror нужны, чтобы приложение знало, чем кончилась загрузка,
+       даже если это случилось раньше, чем оно запустилось.
+       Ревью В-3: заставку Telegram на телефоне снимает WebApp.ready() (без него — только событие load,
+       которое ждёт и этот async-скрипт). Поэтому ready() вызывается прямо здесь, как только SDK
+       выполнился, — не дожидаясь файлов приложения и ответа сервера (раньше его звал app.js при старте). -->
+  <script src="https://telegram.org/js/telegram-web-app.js" async onload="window.__sdkState='load';try{if(!window.__tgReadyCalled&&window.Telegram&&window.Telegram.WebApp){window.__tgReadyCalled=true;window.Telegram.WebApp.ready();}}catch(e){}" onerror="window.__sdkState='error'"></script>
 
   <!--
     ПРЕДЗАГРУЗКА МОДУЛЕЙ (14.09.2026).
@@ -108,9 +126,16 @@
       setTimeout(reload, 8000);
     } catch (e) { reload(); }
   }
+  /* Волна 5 (ревью, М-1): «пусто» — ничего нет или только наш индикатор «Загружаем…» (см. ниже). */
+  function __appRootBlank() {
+    var root = document.getElementById("screen-root");
+    if (!root) return false;
+    var h = root.innerHTML.trim();
+    return h === "" || (h.indexOf('id="app-boot-wait"') !== -1 && root.children.length === 1);
+  }
   function __appLoadFailed() {
     var root = document.getElementById("screen-root");
-    if (!root || root.innerHTML.trim() !== "") return;
+    if (!__appRootBlank()) return;
     root.innerHTML =
       '<div class="card"><h2>Не удалось загрузить приложение</h2>' +
       '<div class="sub">Похоже, интернет пропал. Проверьте соединение и нажмите «Обновить».</div>' +
@@ -128,15 +153,29 @@
      07.10.2026: отсчёт идёт от DOMContentLoaded, а не от load. Модули приложения к этому событию уже
      выполнены (или не смогли), а load ждёт ещё и шрифт с чужого сервера: если тот зависал, пустой
      экран держался не 1,5 секунды, а пока не кончится запрос шрифта. */
+  function __appBlankCheck() {
+    var root = document.getElementById("screen-root");
+    if (window.__appStarted || !__appRootBlank()) return;
+    root.innerHTML =
+      '<div class="card"><h2>Приложение обновляется</h2>' +
+      '<div class="sub">Мы только что выпустили новую версию, и телефон ещё не скачал её целиком. Нажмите «Обновить». Если не помогло — закройте приложение и откройте его снова через несколько минут.</div>' +
+      '<button class="btn btn-primary" style="margin-top:14px" onclick="__appRefresh(this)">Обновить</button></div>';
+  }
+  /* Волна 5 (аудит 14.10.2026, B-10; ревью М-1): карточка «Приложение обновляется» — только когда
+     приложение действительно не запустилось: DOMContentLoaded наступил (все модули выполнены или не
+     смогли), а js/app.js так и не поставил отметку window.__appStarted. Медленный интернет — не повод:
+     раньше таймер 4 с от разбора страницы показывал «выпустили новую версию», пока файлы ещё качались.
+     Теперь в этом случае через 4 с — обычный индикатор «Загружаем…»; а если файлы не пришли и за 15 с
+     (DOMContentLoaded не наступил вовсе) — «Не удалось загрузить приложение» с «Обновить». */
+  setTimeout(function () {
+    var root = document.getElementById("screen-root");
+    if (window.__appStarted || !root || root.innerHTML.trim() !== "") return;
+    root.innerHTML = '<div id="app-boot-wait" class="loading-spinner" style="flex-direction:column" role="status" aria-label="Загрузка"><span class="spinner-dot"></span>' +
+      '<div class="sub" style="margin-top:12px;text-align:center">Загружаем приложение — медленный интернет, подождите немного.</div></div>';
+  }, 4000);
+  setTimeout(function () { if (!window.__appStarted) __appLoadFailed(); }, 15000);
   document.addEventListener("DOMContentLoaded", function () {
-    setTimeout(function () {
-      var root = document.getElementById("screen-root");
-      if (!root || root.innerHTML.trim() !== "") return;
-      root.innerHTML =
-        '<div class="card"><h2>Приложение обновляется</h2>' +
-        '<div class="sub">Мы только что выпустили новую версию, и телефон ещё не скачал её целиком. Нажмите «Обновить». Если не помогло — закройте приложение и откройте его снова через несколько минут.</div>' +
-        '<button class="btn btn-primary" style="margin-top:14px" onclick="__appRefresh(this)">Обновить</button></div>';
-    }, 1500);
+    setTimeout(__appBlankCheck, 1500);
   });
 </script>
 </body>

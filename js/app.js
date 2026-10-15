@@ -1,6 +1,6 @@
 import { initRouter, registerScreen, setNavigateListener } from "./router.js";
 import { renderNav, setActiveNav } from "./components/nav.js";
-import { initTelegram, getStartParam, requestWriteAccessIfNeeded } from "./services/telegram.js";
+import { initTelegram, getStartParam, requestWriteAccessIfNeeded, telegramReady, getTelegramUserId } from "./services/telegram.js";
 import { isLiveBackendConfigured } from "./services/config.js";
 import * as api from "./services/api.js";
 import { esc } from "./utils/format.js?v=3";
@@ -14,7 +14,14 @@ import * as statusDetail from "./screens/statusDetail.js";
 import * as celebration from "./screens/celebration.js";
 import * as events from "./screens/events.js";
 
-initTelegram();
+// Волна 5 (ревью М-1): отметка «приложение запустилось» — по ней страховка в index.html отличает
+// медленную загрузку файлов (индикатор) от настоящего сбоя запуска (карточка «Приложение обновляется»).
+window.__appStarted = true;
+
+// Волна 5 (аудит 14.10.2026, B-10): SDK грузится async и может прийти позже первого экрана —
+// ready/expand/цвета вызываются, как только он появился (один раз, см. initTelegram).
+telegramReady().then(initTelegram, () => {});
+window.addEventListener("telegram-ready", initTelegram);
 
 /**
  * МОНИТОРИНГ ОШИБОК НА ЭКРАНЕ (23.09.2026). Любая необработанная ошибка
@@ -28,7 +35,7 @@ function reportClientError_(err, kind, extra) {
   try {
     if (!isLiveBackendConfigured()) return;
     const message = String((err && err.message) || err || "").slice(0, 300);
-    if (!message || /^(OFFLINE|TIMEOUT|BACKEND_HTML)$/.test(message) || /NOT_INVITED|UNAUTHORIZED/.test(message)) return;
+    if (!message || /^(OFFLINE|TIMEOUT|BACKEND_HTML|NOT_IN_TELEGRAM|TG_SDK_FAILED)$/.test(message) || /NOT_INVITED|UNAUTHORIZED/.test(message)) return;
     const key = kind + ":" + message;
     if (reportedErrors_.has(key) || reportedErrors_.size > 5) return;
     reportedErrors_.add(key);
@@ -132,7 +139,8 @@ async function показатьОшибкуПривязки_(err, token) {
   } else if (код.indexOf("already used") !== -1) {
     текст = "Эта ссылка уже была использована. Если приложение не показывает ваши данные, попросите координатора прислать новую.";
   } else if (код.indexOf("expired") !== -1) {
-    текст = "Срок действия ссылки истёк — она живёт две недели. Напишите координатору, он пришлёт новую.";
+    // Волна 5 (аудит 14.10.2026, B-34): без конкретного срока — на сервере он другой (и может меняться).
+    текст = "Срок действия ссылки истёк. Напишите координатору, он пришлёт новую.";
   } else if (код.indexOf("Unknown linking token") !== -1) {
     текст = "Ссылка не распознана. Скорее всего, она скопировалась не целиком — откройте её прямо из сообщения координатора или попросите прислать заново.";
   } else if (/[А-Яа-я]/.test(код)) {
@@ -179,6 +187,14 @@ async function показатьОшибкуПривязки_(err, token) {
 // Deep link support (ТЗ §58/§78): either a one-time account-linking token
 // (?startapp=link_<token>) or a direct jump to a screen (?startapp=status_PLACEMENT_COMPLETED).
 async function handleStartParam() {
+  // Волна 5 (B-10): данных запуска нет ни в адресе, ни в памяти вкладки — ссылку (startapp)
+  // знает только SDK: ждём его (не дольше 6 с), а пока показываем индикатор загрузки.
+  if (!getTelegramUserId()) {
+    if (contentEl && !contentEl.innerHTML.trim()) {
+      contentEl.innerHTML = `<div class="loading-spinner" role="status" aria-label="Загрузка"><span class="spinner-dot"></span></div>`;
+    }
+    await telegramReady();
+  }
   const startParam = getStartParam();
   if (!startParam) return;
 
@@ -188,8 +204,12 @@ async function handleStartParam() {
     // данные — они привязаны: показываем экран сразу, а привязку
     // подтверждаем в фоне (раньше каждый такой вход ждал сервер ~3 с).
     if (api.hasSavedState()) {
+      // Волна 5 (аудит 14.10.2026, B-09): эту ссылку сервер уже подтвердил для этого аккаунта, а данные студента
+      // на телефоне есть — link не шлём вовсе (раньше — при каждом входе: замок и 3–5 чтений листов на сервере).
+      // typeof — на случай смеси версий файлов (старый api.js из кеша браузера): тогда как раньше.
+      if (typeof api.linkAlreadyConfirmed === "function" && api.linkAlreadyConfirmed(startParam.rest)) return;
       api.linkAccount(startParam.rest)
-        .then((r) => { if (!(r && r.alreadyLinked && !r.seeded)) window.dispatchEvent(new Event("state-refreshed")); })
+        .then((r) => { if (r && (r.stateApplied || !(r.alreadyLinked && !r.seeded))) window.dispatchEvent(new Event("state-refreshed")); })
         .catch((err) => console.warn("[app] background re-link:", err));
       return;
     }
@@ -285,7 +305,8 @@ async function подставитьСезонВШапку() {
     // Состояние пришло — значит, студент подключён. Самое время спросить
     // разрешение боту писать ему (см. requestWriteAccessIfNeeded): без него
     // напоминания и приглашения до человека не доходят.
-    requestWriteAccessIfNeeded(() => { api.reportWriteAccess().catch(() => {}); });
+    // Волна 5 (B-10): экран из памяти телефона рисуется до прихода SDK — окно спрашиваем, когда он есть.
+    telegramReady().then(() => requestWriteAccessIfNeeded(() => { api.reportWriteAccess().catch(() => {}); }), () => {});
     const program = (participant && participant.program) || "";
     const season = (participant && participant.season) || "";
     // ГОД БЕЗ ИСТОЧНИКА (14.09.2026). Условие было `program && season`, то
@@ -297,10 +318,18 @@ async function подставитьСезонВШапку() {
     // закрыть, но не закрыла: без данных разметка проступала обратно.
     // Теперь без сезона показываем только программу — год не выдумываем.
     if (program) плашка.textContent = season ? `${program} ${season}` : program;
+    плашка.title = плашка.textContent; // Волна 5 (B-69): на 320 px длинная плашка обрезается многоточием
   } catch (err) {
     // намеренно тихо — см. комментарий выше
   }
 }
+
+// Волна 5 (B-10): SDK сообщил другой аккаунт — программа в шапке была из чужой копии.
+window.addEventListener("account-changed", () => {
+  const плашка = document.getElementById("brand-season");
+  if (плашка) плашка.textContent = "SELF";
+  подставитьСезонВШапку();
+});
 
 // The demo stage-switcher only makes sense on mock data — once a live
 // amoCRM-backed backend is configured, currentStageId is real and this

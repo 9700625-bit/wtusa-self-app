@@ -70,7 +70,11 @@ function обновитьКнопкуНазад_() {
       bb.onClick(goBack);
       кнопкаНазадПодключена = true;
     }
-    if (historyStack.length > 1) bb.show();
+    // Волна 5 (аудит 14.10.2026, B-64): и на вложенном экране, открытом по ссылке (status_…,
+    // event_…), где в истории он один. Раньше кнопка там была скрыта, и «Назад» на Android
+    // закрывал приложение, хотя на экране есть «← Назад»; теперь она ведёт на главную, как и
+    // экранная (goBack без предыдущего экрана идёт на home). На вкладках — по-прежнему скрыта.
+    if (historyStack.length > 1 || !этоВкладка_(historyStack[historyStack.length - 1])) bb.show();
     else bb.hide();
   } catch (e) {
     // кнопка — удобство, ошибка в ней не должна ронять отрисовку экрана
@@ -108,6 +112,21 @@ window.addEventListener("state-refreshed", () => {
 // отбрасывается; его поздние перерисовки (после «Записаться», после галочки
 // чек-листа) идут в тот же отброшенный блок и на странице не видны.
 let renderSeq = 0;
+let ошибкаSdkНаЭкране_ = false;
+
+// Волна 5 (B-10): SDK Telegram пришёл позже первого экрана — показываем BackButton, а если на
+// экране «Не удалось связаться с Telegram», сразу пробуем ещё раз.
+window.addEventListener("telegram-ready", () => {
+  обновитьКнопкуНазад_();
+  if (ошибкаSdkНаЭкране_) render(true);
+});
+// Волна 5 (B-10): SDK сообщил другой аккаунт, чем в данных запуска, — то, что нарисовано из
+// копии на телефоне, убираем сразу, не дожидаясь сервера.
+window.addEventListener("account-changed", () => {
+  if (!containerEl) return;
+  containerEl.innerHTML = "";
+  render(true);
+});
 
 /**
  * P12-аудит (12.10.2026): ВКЛАДКИ НЕ КОПЯТСЯ В ИСТОРИИ «НАЗАД». Что ломалось: каждая вкладка
@@ -117,6 +136,33 @@ let renderSeq = 0;
  * вложенные экраны — этап, поздравление, конкретное приглашение (event/<id>).
  */
 const ВКЛАДКИ_ = ["home", "roadmap", "event", "documents", "payments", "profile"];
+function этоВкладка_(запись) {
+  return !запись || ВКЛАДКИ_.includes(запись);
+}
+
+/**
+ * Волна 5 (аудит 14.10.2026, B-22): СТЕК «НАЗАД» ЖИВЁТ В САМОЙ ЗАПИСИ ИСТОРИИ. Что ломалось:
+ * браузерная «Назад» (Telegram Web/Desktop, жест, Alt+←) меняла адрес, а наш стек об этом не
+ * знал и только дописывался: home → этап A → этап B, браузерная «Назад» на A, затем кнопка
+ * Telegram «Назад» вела ВПЕРЁД на B. Теперь каждая запись истории хранит снимок стека
+ * (history.state); при переходе по истории стек берётся из записи, на которую вернулись.
+ */
+function стекИзИстории_(currentEntry) {
+  try {
+    const st = window.history.state;
+    const снимок = st && Array.isArray(st.wtusaStack) ? st.wtusaStack : null;
+    if (снимок && снимок.length && снимок[снимок.length - 1] === currentEntry) return снимок.slice();
+  } catch (e) { /* history недоступна */ }
+  return null;
+}
+function запомнитьСтек_() {
+  try {
+    const st = window.history.state;
+    const было = st && Array.isArray(st.wtusaStack) ? st.wtusaStack.join("|") : null;
+    if (было === historyStack.join("|")) return;
+    window.history.replaceState(Object.assign({}, st && typeof st === "object" ? st : {}, { wtusaStack: historyStack.slice() }), "");
+  } catch (e) { /* не страшно: стек просто не переживёт переход по истории */ }
+}
 
 async function render(force, тихо) {
   if (!containerEl) return;
@@ -143,12 +189,17 @@ async function render(force, тихо) {
   // that garbage string must never end up in historyStack (goBack() would
   // then navigate to it).
   const currentEntry = resolvedName + (params.length ? "/" + params.join("/") : "");
-  if (!params.length && ВКЛАДКИ_.includes(resolvedName)) {
+  const изИстории = стекИзИстории_(currentEntry);
+  if (изИстории) {
+    historyStack.length = 0;
+    historyStack.push(...изИстории);
+  } else if (!params.length && ВКЛАДКИ_.includes(resolvedName)) {
     historyStack.length = 0;
     historyStack.push(currentEntry);
   } else if (historyStack[historyStack.length - 1] !== currentEntry) {
     historyStack.push(currentEntry);
   }
+  запомнитьСтек_();
   обновитьКнопкуНазад_();
 
   const seq = ++renderSeq;
@@ -174,6 +225,7 @@ async function render(force, тихо) {
     // Экран, который сам ничего не нарисовал (перенаправил на другой адрес),
     // прежнее содержимое не стирает — его заменит следующий экран.
     if (холст.childNodes.length) {
+      ошибкаSdkНаЭкране_ = false;
       containerEl.innerHTML = "";
       containerEl.appendChild(холст);
     }
@@ -223,6 +275,15 @@ async function render(force, тихо) {
         заголовок = "Подключение ещё идёт";
         пояснение = "Сервер ещё подключает ваш профиль. Подождите несколько секунд и нажмите «Попробовать ещё раз».";
       }
+    } else if (код === "NOT_IN_TELEGRAM") {
+      // Волна 5 (аудит 14.10.2026, B-65): открыли в обычном браузере. Раньше запрос уходил на
+      // сервер с пустыми данными входа и возвращался ложным «Сеанс устарел».
+      заголовок = "Откройте приложение через Telegram";
+      пояснение = "Это приложение работает только внутри Telegram: откройте его из чата с ботом ABC Universe или по персональной ссылке, которую прислал координатор.";
+    } else if (код === "TG_SDK_FAILED") {
+      // Волна 5 (B-10): не скачался служебный файл Telegram (telegram.org), а данных входа нет.
+      заголовок = "Не удалось связаться с Telegram";
+      пояснение = "Приложение не получило от Telegram данные для входа — обычно из-за медленного интернета. Проверьте соединение и нажмите «Попробовать ещё раз».";
     } else if (код.indexOf("UNAUTHORIZED") !== -1 || код.indexOf("initData") !== -1) {
       заголовок = "Нужно переоткрыть приложение";
       пояснение = "Сеанс устарел — так бывает, если приложение было открыто долго. Закройте его и откройте заново из чата с ботом.";
@@ -230,7 +291,8 @@ async function render(force, тихо) {
 
     // При «доступ по приглашению» повтор ничего не изменит — кнопка только
     // сбивала бы с толку: человек жал бы её снова и снова с тем же результатом.
-    const показатьПовтор = код.indexOf("NOT_INVITED") === -1 || !!window.__linkPending;
+    const показатьПовтор = (код.indexOf("NOT_INVITED") === -1 || !!window.__linkPending) && код !== "NOT_IN_TELEGRAM";
+    ошибкаSdkНаЭкране_ = код === "TG_SDK_FAILED";
     containerEl.innerHTML = `
       <div class="card">
         <h2>${заголовок}</h2>
@@ -241,7 +303,11 @@ async function render(force, тихо) {
     // render(force=true) перерисовывает текущий хэш заново: сигнатура функции —
     // render(force), а не render(имя, параметры). Именно force здесь обязателен,
     // иначе проверка «этот хэш уже отрисован» молча отменит повтор.
-    if (кнопка) кнопка.addEventListener("click", () => render(true));
+    if (кнопка) кнопка.addEventListener("click", () => {
+      // Волна 5 (B-10): повтор снова ждёт SDK Telegram, если в прошлый раз не дождались.
+      try { window.dispatchEvent(new Event("app-retry")); } catch (e) { /* старый WebView */ }
+      render(true);
+    });
   } finally {
     // Затемнение «идёт загрузка» снимает только самая свежая отрисовка.
     if (актуальна()) containerEl.removeAttribute("aria-busy");

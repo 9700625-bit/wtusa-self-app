@@ -2,6 +2,11 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8" />
+<!-- Волна 5 (аудит 14.10.2026, B-72, SEC-9): CSP мета-тегом (GitHub Pages заголовков не ставит), до любого скрипта.
+     Запросы — только к сайту и бэкенду Apps Script: внедрённый скрипт не унесёт пароль координатора на чужой сервер
+     (ни fetch, ни картинка); вкладки кабинета — свои страницы (frame-src 'self'). 'unsafe-inline' — на страницах
+     встроенные скрипты и обработчики в разметке; хеши для обработчиков требуют 'unsafe-hashes' (не во всех браузерах). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://script.google.com https://script.googleusercontent.com; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex,nofollow" />
 <script>
@@ -275,16 +280,32 @@ async function adminGet(action, extraParams, timeoutMs) {
   }
 }
 
+// Волна 5 (аудит 14.10.2026, B-47): ЗАПИСЬ ТОЖЕ НЕ ЖДЁТ БЕСКОНЕЧНО. Что ломалось: при зависшем
+// соединении «Сохраняем…/Отправляю…» висело без конца, кнопка оставалась выключенной. Теперь через
+// 60 с ожидание обрывается (WRITE_TIMEOUT). Запись при этом МОГЛА дойти до сервера, поэтому текст
+// ошибки просит проверить результат перед повтором, а места, где повтор опасен (рассылка, WhatsApp,
+// приглашения), считают это «результат неизвестен»: повтор — с тем же номером запроса.
+const ТАЙМАУТ_ЗАПИСИ_МС = 60000;
 async function adminPost(action, payload) {
   const params = new URLSearchParams({ action }); // P17: пароль — в теле
-  const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" }, // same CORS workaround as the app itself
-    body: JSON.stringify(Object.assign({}, payload || {}, { secret: secret() })),
-  });
-  const json = await resp.json();
-  if (json.error) throw new Error(json.error);
-  return json;
+  const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), ТАЙМАУТ_ЗАПИСИ_МС) : null;
+  try {
+    const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" }, // same CORS workaround as the app itself
+      body: JSON.stringify(Object.assign({}, payload || {}, { secret: secret() })),
+      signal: ctrl ? ctrl.signal : undefined,
+    });
+    const json = await resp.json();
+    if (json.error) throw new Error(json.error);
+    return json;
+  } catch (err) {
+    if (ctrl && ctrl.signal.aborted) throw new Error("WRITE_TIMEOUT");
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /**
@@ -296,6 +317,7 @@ function понятнаяОшибка(err) {
   const m = String((err && err.message) || err || "");
   if (/bad secret/i.test(m)) return "неверный секретный код";
   if (m === "TIMEOUT") return "сервер не ответил за 45 секунд";
+  if (m === "WRITE_TIMEOUT") return "сервер не ответил за 60 секунд — запись могла дойти до сервера, проверьте результат перед повтором"; // Волна 5, B-47
   if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "нет связи с сервером";
   if (/Unexpected token|not valid JSON|Unexpected end of/i.test(m)) return "сервер ответил не по формату (временный сбой на стороне Google)";
   if (/^unknown action/i.test(m)) return "сервер не распознал запрос (" + m + ")";
@@ -513,7 +535,9 @@ async function createLinkFor(dealId, name, неИзСписка) {
   // Не сразу: пусть двойной щелчок закончится, пока список ещё на месте.
   setTimeout(() => resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" }), 600);
   try {
-    const res = await adminGet("adminCreateLink", { dealId: String(dealId) });
+    // Волна 5 (аудит 14.10.2026, B-56): и создание ссылки — не дольше 45 с. Раньше без тайм-аута зависший ответ
+    // оставлял «Генерирую…» навсегда. Повтор безопасен: сервер отдаёт прежний живой токен (B-62), второй не выписывает.
+    const res = await adminGet("adminCreateLink", { dealId: String(dealId) }, ТАЙМАУТ_ЗАГРУЗКИ_МС);
     if (!актуален()) return; // пока ждали, координатор выбрал другую сделку
     resultEl.className = "ok";
     // НАЗВАНИЕ СДЕЛКИ ОТ СЕРВЕРА (06.10.2026). Для ID, введённого вручную, имени

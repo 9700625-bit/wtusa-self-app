@@ -1,6 +1,7 @@
 import * as api from "../services/api.js";
 import { paymentTagHtml } from "../components/statusBadge.js";
 import { formatDate, formatMoney, daysLabel, esc } from "../utils/format.js?v=3";
+import { openExternalLink } from "../services/telegram.js";
 
 function timingText(p) {
   if (p.status === "paid" && p.paidDate) return `Оплачено ${formatDate(p.paidDate)}`;
@@ -81,7 +82,7 @@ export async function render(container) {
         .join("")
     : `<div class="sub">График платежей пока не сформирован — появится после оформления сделки.</div>`;
   const rateLinkHtml = fxRate && /^https:\/\//i.test(String(fxRate.url || ""))
-    ? `<a class="link-row" href="${esc(fxRate.url)}" target="_blank" rel="noopener">Официальные курсы Нацбанка РК<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></a>`
+    ? `<a class="link-row" href="${esc(fxRate.url)}" target="_blank" rel="noopener" data-external>Официальные курсы Нацбанка РК<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></a>`
     : "";
 
   const feesHtml = visaFees
@@ -166,4 +167,15 @@ export async function render(container) {
         }
       </div>
     </section>`;
+
+  // Волна 5 (аудит 14.10.2026, B-70): ссылка на курсы Нацбанка — через openLink Telegram, как
+  // остальные внешние ссылки приложения. Обычный target=_blank в WebView Telegram открывается
+  // по-разному (на части клиентов — никак). href остаётся: вне Telegram откроется как раньше.
+  const ссылкаКурса = container.querySelector("a[data-external]");
+  if (ссылкаКурса) {
+    ссылкаКурса.addEventListener("click", (e) => {
+      e.preventDefault();
+      openExternalLink(ссылкаКурса.href);
+    });
+  }
 }

@@ -2,6 +2,11 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
+<!-- Волна 5 (аудит 14.10.2026, B-72, SEC-9): CSP мета-тегом (GitHub Pages заголовков не ставит), до любого скрипта.
+     Запросы — только к сайту и бэкенду Apps Script: внедрённый скрипт не унесёт пароль координатора на чужой сервер
+     (ни fetch, ни картинка); вкладки кабинета — свои страницы (frame-src 'self'). 'unsafe-inline' — на страницах
+     встроенные скрипты и обработчики в разметке; хеши для обработчиков требуют 'unsafe-hashes' (не во всех браузерах). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://script.google.com https://script.googleusercontent.com; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex,nofollow" />
 <script>

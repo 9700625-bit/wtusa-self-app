@@ -2,6 +2,11 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
+<!-- Волна 5 (аудит 14.10.2026, B-72, SEC-9): CSP мета-тегом (GitHub Pages заголовков не ставит), до любого скрипта.
+     Запросы — только к сайту и бэкенду Apps Script: внедрённый скрипт не унесёт пароль координатора на чужой сервер
+     (ни fetch, ни картинка); вкладки кабинета — свои страницы (frame-src 'self'). 'unsafe-inline' — на страницах
+     встроенные скрипты и обработчики в разметке; хеши для обработчиков требуют 'unsafe-hashes' (не во всех браузерах). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://script.google.com https://script.googleusercontent.com; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex,nofollow" />
 <script>
@@ -361,16 +366,32 @@ const SECRET_KEY = "wtusa_admin_secret";
     }
   }
 
+  // Волна 5 (аудит 14.10.2026, B-47): ЗАПИСЬ ТОЖЕ НЕ ЖДЁТ БЕСКОНЕЧНО. Что ломалось: при зависшем
+  // соединении «Сохраняем…/Отправляю…» висело без конца, кнопка оставалась выключенной. Теперь через
+  // 60 с ожидание обрывается (WRITE_TIMEOUT). Запись при этом МОГЛА дойти до сервера, поэтому текст
+  // ошибки просит проверить результат перед повтором, а места, где повтор опасен (рассылка, WhatsApp,
+  // приглашения), считают это «результат неизвестен»: повтор — с тем же номером запроса.
+  const ТАЙМАУТ_ЗАПИСИ_МС = 60000;
   async function adminPost(action, payload) {
     const params = new URLSearchParams({ action }); // P17: пароль — в теле
-    const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" }, // same CORS workaround as the app itself
-      body: JSON.stringify(Object.assign({}, payload || {}, { secret: secret() })),
-    });
-    const json = await resp.json();
-    if (json.error) throw new Error(json.error);
-    return json;
+    const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), ТАЙМАУТ_ЗАПИСИ_МС) : null;
+    try {
+      const resp = await fetch(`${BACKEND_URL}?${params.toString()}`, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" }, // same CORS workaround as the app itself
+        body: JSON.stringify(Object.assign({}, payload || {}, { secret: secret() })),
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      const json = await resp.json();
+      if (json.error) throw new Error(json.error);
+      return json;
+    } catch (err) {
+      if (ctrl && ctrl.signal.aborted) throw new Error("WRITE_TIMEOUT");
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
 
@@ -383,6 +404,7 @@ const SECRET_KEY = "wtusa_admin_secret";
     const m = String((err && err.message) || err || "");
     if (/bad secret/i.test(m)) return "неверный секретный код";
     if (m === "TIMEOUT") return "сервер не ответил за 45 секунд";
+    if (m === "WRITE_TIMEOUT") return "сервер не ответил за 60 секунд — запись могла дойти до сервера, проверьте результат перед повтором"; // Волна 5, B-47
     if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "нет связи с сервером";
     if (/Unexpected token|not valid JSON|Unexpected end of/i.test(m)) return "сервер ответил не по формату (временный сбой на стороне Google)";
     if (/^unknown action/i.test(m)) return "сервер не распознал запрос (" + m + ")";
@@ -833,7 +855,8 @@ const SECRET_KEY = "wtusa_admin_secret";
         resultEl.className = "err";
         const m = String((err && err.message) || "");
         // Сбой связи/формата — запрос мог выполниться на сервере.
-        const ответаНет = /Failed to fetch|NetworkError|Load failed|Unexpected token|not valid JSON|Unexpected end of|^unknown action/i.test(m);
+        // Волна 5 (B-47): WRITE_TIMEOUT — ответа не дождались за 60 с, мероприятие могло создаться.
+        const ответаНет = /Failed to fetch|NetworkError|Load failed|Unexpected token|not valid JSON|Unexpected end of|^unknown action|^WRITE_TIMEOUT$/i.test(m);
         if (ответаНет) {
           рассылкаБезОтвета = { rid: requestId, ключ: ключФормы };
           ждатьПослеНеизвестной = true;
@@ -890,6 +913,9 @@ const SECRET_KEY = "wtusa_admin_secret";
   // отметке их было бы десятки. Подпись снимается, когда отметка сохранилась.
   const ошибкиОтметки = new Map();
   let идётМассоваяОтметка = false;
+  // Волна 5 (аудит 14.10.2026, B-11): сервер умеет отмечать пачкой (adminSetAttendanceBulk) — это он сообщает
+  // в ответе списка (withMeta → features.attendanceBulk). Старый сервер отдаёт массив — отмечаем по одной, как раньше.
+  let серверОтмечаетПачкой = false;
 
   function switchTab(name) {
     document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
@@ -912,7 +938,9 @@ const SECRET_KEY = "wtusa_admin_secret";
     // строку неотмеченной.
     listEl.innerHTML = `<div class="sub" style="padding:12px">Загружаем…</div>`;
     try {
-      attendanceGroups = await adminGet("adminListInvitations", null, ТАЙМАУТ_ЗАГРУЗКИ_МС);
+      const списокОтвет = await adminGet("adminListInvitations", { withMeta: true }, ТАЙМАУТ_ЗАГРУЗКИ_МС);
+      attendanceGroups = Array.isArray(списокОтвет) ? списокОтвет : (списокОтвет && списокОтвет.groups) || [];
+      серверОтмечаетПачкой = !Array.isArray(списокОтвет) && !!(списокОтвет && списокОтвет.features && списокОтвет.features.attendanceBulk);
     } catch (err) {
       listEl.innerHTML = `<div class="sub" style="padding:12px;color:var(--danger)">Не удалось загрузить: ${esc(понятнаяОшибка(err))}</div>`;
       attendanceLoading = false;
@@ -1049,7 +1077,8 @@ const SECRET_KEY = "wtusa_admin_secret";
       if (inv) inv.attended = attended;
       ошибкиОтметки.delete(ключ);
     } catch (err) {
-      ошибкиОтметки.set(ключ, "Отметка не сохранилась: " + причинаБезТочки_(err) + ". Нажмите ещё раз.");
+      // Волна 5 (B-47): без ответа отметка могла сохраниться; повтор безопасен (ставит то же значение).
+      ошибкиОтметки.set(ключ, (String(err && err.message) === "WRITE_TIMEOUT" ? "Сервер не подтвердил отметку: " : "Отметка не сохранилась: ") + причинаБезТочки_(err) + ". Нажмите ещё раз.");
     } finally {
       идётОтметка.delete(ключ);
       обновитьСтроку(groupId, telegramId);
@@ -1073,6 +1102,11 @@ const SECRET_KEY = "wtusa_admin_secret";
    * Mini App, получал «UNAUTHORIZED» (не «unknown action»), и страница пробовала
    * его снова при каждом нажатии — лишний запрос с паролем в теле. Теперь его
    * не шлём; после каждой отметки перерисовывается только её строка.
+   *
+   * Волна 5 (аудит 14.10.2026, B-11): 100 студентов — 100 запросов подряд (≈5 мин). Теперь, если сервер сообщил,
+   * что умеет (features.attendanceBulk в ответе списка), — один запрос adminSetAttendanceBulk со всеми строками;
+   * ответ — по строке на студента, ошибки подписываются в строках, как раньше. Сервер всё же ответил
+   * «unknown action» — запоминаем и отмечаем по одной.
    */
   async function отметитьВсехНаСлот() {
     if (идётМассоваяОтметка) return;
@@ -1109,7 +1143,41 @@ const SECRET_KEY = "wtusa_admin_secret";
     let ошибок = 0;
     let прервано = 0;
     try {
-      for (let n = 0; n < цели.length; n++) {
+      let поОдной = !серверОтмечаетПачкой;
+      if (!поОдной) {
+        statusEl.textContent = "Отмечаем " + цели.length + " одним запросом…";
+        try {
+          const res = await adminPost("adminSetAttendanceBulk", { groupId, telegramIds: цели.map((i) => i.telegramId), attended: "yes" });
+          const поId = {};
+          ((res && res.results) || []).forEach((x) => { поId[String(x.telegramId)] = x; });
+          цели.forEach((inv) => {
+            const k = groupId + "|" + inv.telegramId;
+            const x = поId[String(inv.telegramId)];
+            if (x && x.ok) {
+              inv.attended = "yes";
+              if (x.status) inv.status = x.status;
+              ошибкиОтметки.delete(k);
+              сохранено++;
+            } else {
+              ошибкиОтметки.set(k, "Отметка не сохранилась: " + причинаБезТочки_(new Error((x && x.error) || "сервер не ответил по этой строке")) + ". Нажмите «Был» ещё раз.");
+              ошибок++;
+            }
+          });
+        } catch (err) {
+          const m = String((err && err.message) || "");
+          if (/unknown action/i.test(m)) {
+            серверОтмечаетПачкой = false;
+            поОдной = true;
+          } else if (/bad secret/i.test(m)) {
+            прервано = цели.length;
+          } else {
+            const текст = (m === "WRITE_TIMEOUT" ? "Сервер не подтвердил отметку: " : "Отметка не сохранилась: ") + причинаБезТочки_(err) + ". Нажмите «Был» ещё раз.";
+            цели.forEach((inv) => ошибкиОтметки.set(groupId + "|" + inv.telegramId, текст));
+            ошибок = цели.length;
+          }
+        }
+      }
+      for (let n = 0; поОдной && n < цели.length; n++) {
         const inv = цели[n];
         const k = groupId + "|" + inv.telegramId;
         statusEl.textContent = "Отмечаем: " + (n + 1) + " из " + цели.length + "…";
@@ -1119,7 +1187,7 @@ const SECRET_KEY = "wtusa_admin_secret";
           ошибкиОтметки.delete(k);
           сохранено++;
         } catch (err) {
-          ошибкиОтметки.set(k, "Отметка не сохранилась: " + причинаБезТочки_(err) + ". Нажмите «Был» ещё раз.");
+          ошибкиОтметки.set(k, (String(err && err.message) === "WRITE_TIMEOUT" ? "Сервер не подтвердил отметку: " : "Отметка не сохранилась: ") + причинаБезТочки_(err) + ". Нажмите «Был» ещё раз."); // Волна 5, B-47
           ошибок++;
           if (/bad secret/i.test(String((err && err.message) || ""))) {
             // Код больше не действует — остальные строки не трогаем.

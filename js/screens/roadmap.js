@@ -54,8 +54,28 @@ function bindStepHandlers(root) {
   });
 }
 
-export async function render(container) {
+/**
+ * Волна 5 (аудит 14.10.2026, B-63): ТИХАЯ ПЕРЕРИСОВКА НЕ СВОРАЧИВАЕТ ГРУППЫ. Что ломалось: студент
+ * раскрывал «Visa», через пару секунд приходили свежие данные (фоновое обновление после открытия
+ * из памяти телефона, возврат в приложение) — и группа сворачивалась: раскрытой оставалась только
+ * группа текущего этапа. Теперь при тихой перерисовке группы, которые студент сам раскрыл или
+ * свернул (их состояние отличается от исходного), остаются такими же. Обычный переход на экран
+ * начинает, как раньше, с одной раскрытой группы текущего этапа.
+ */
+let последнийЭкран_ = null;
+function изменённыеГруппы_() {
+  const итог = new Map();
+  if (!последнийЭкран_ || !последнийЭкран_.isConnected) return итог;
+  последнийЭкран_.querySelectorAll("details[data-group]").forEach((d) => {
+    const исходно = d.dataset.defaultOpen === "1";
+    if (d.open !== исходно) итог.set(d.dataset.group, d.open);
+  });
+  return итог;
+}
+
+export async function render(container, _params, роутер) {
   const { groups, currentStageId, progress, program, season } = await api.getRoadmap();
+  const раскрыто = роутер && роутер.тихо ? изменённыеГруппы_() : new Map();
 
   // СЕЗОН ИЗ ДАННЫХ, А НЕ ИЗ КОДА (03.09.2026). Здесь стояло захардкоженное
   // «SELF 2027» — участнику следующего сезона приложение писало бы чужой год.
@@ -89,7 +109,7 @@ export async function render(container) {
       const bodyHtml = isCurrentGroup ? stepsHtmlFor(group.stages) : "";
 
       return `
-      <details class="card" data-group="${group.id}" ${isCurrentGroup ? "open" : ""} ${isCurrentGroup ? "" : 'data-lazy="1"'}>
+      <details class="card" data-group="${group.id}" data-default-open="${isCurrentGroup ? "1" : "0"}" ${isCurrentGroup ? "open" : ""} ${isCurrentGroup ? "" : 'data-lazy="1"'}>
         <summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
           <span><b>${group.title}</b></span>
           ${badge}
@@ -123,6 +143,24 @@ export async function render(container) {
       bindStepHandlers(body);
     });
   });
+
+  // B-63: возвращаем группы, которые студент раскрыл/свернул до тихой перерисовки. Ленивую группу
+  // заполняем сразу (а не по событию toggle), чтобы раскрытая не мигнула пустой.
+  раскрыто.forEach((открыта, id) => {
+    const d = container.querySelector('details[data-group="' + id + '"]');
+    if (!d) return;
+    if (открыта) {
+      const body = d.querySelector(".road-steps");
+      const group = groupsById.get(id);
+      if (body && !body.dataset.filled && d.dataset.lazy && group) {
+        body.dataset.filled = "1";
+        body.innerHTML = stepsHtmlFor(group.stages);
+        bindStepHandlers(body);
+      }
+    }
+    d.open = открыта;
+  });
+  последнийЭкран_ = container;
 
   // Keep the JOB_PROBLEM branch reachable even though it isn't part of the
   // main linear list (getStagesByGroup filters out branch stages, so this
