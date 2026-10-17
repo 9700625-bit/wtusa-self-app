@@ -501,7 +501,7 @@ const SECRET_KEY = "wtusa_admin_secret";
 
   function populateRoadmapStages() {
     const selectEl = document.getElementById("f-roadmap-stage");
-    STAGES.filter((s) => !s.branch)
+    STAGES.filter((s) => !s.branch && !s.hidden) // волна 6: внутренний этап (hidden) — не для мероприятий
       .sort((a, b) => a.order - b.order)
       .forEach((s) => {
         const opt = document.createElement("option");

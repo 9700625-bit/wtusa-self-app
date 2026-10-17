@@ -184,16 +184,18 @@ export const STAGES = [
     id: "JOB_OFFER_SENT_INTL_REP",
     group: "job_offer",
     order: 5,
-    title: "Job Offer на проверке",
+    // Волна 6 (17.10.2026, владелец): на «Job Offer получен» офер ещё не на проверке — студент заполняет
+    // его по инструкции и обязательно сообщает координатору, что загрузил.
+    title: "Заполните Job Offer по инструкции",
     shortTitle: "Job Offer получен",
-    actionRequired: false,
-    severity: "active",
-    icon: "📥",
-    description: "Ваш Job Offer загружен и скоро будет отправлен на проверку спонсору. От вас ничего не требуется.",
+    actionRequired: true,
+    severity: "warn",
+    icon: "📝",
+    description: "Заполните и загрузите Job Offer по инструкции. Как только загрузите — обязательно сообщите координатору.",
     detail: {
-      whatsHappening: "Ваш Job Offer поступил в ABC Universe и проверяется международным представителем.",
-      whatRequired: "Пока ничего.",
-      whatsNext: "После проверки офер будет отправлен спонсору CIEE.",
+      whatsHappening: "Вы получили Job Offer — теперь его нужно заполнить и загрузить в личный кабинет CIEE по инструкции.",
+      whatRequired: "Заполнить офер по инструкции и сообщить координатору, что офер загружен.",
+      whatsNext: "Координатор проверит офер и передаст его на подачу в CIEE.",
     },
     cta: { label: "Открыть инструкцию", action: "openInstruction" },
     instructionUrl: "https://drive.google.com/drive/folders/1A-3U7-rCT2U51FblQINQmtvOlKfcaI-6",
@@ -202,8 +204,12 @@ export const STAGES = [
   // единственный шаг блока Job Offer, где действие за студентом: офер
   // загружает он сам, в свой личный кабинет CIEE. Раньше шаг был невидимым,
   // и просьба загрузить офер доходила только личным сообщением координатора.
+  // Волна 6 (ревью W6b): статуса «Подать офер на проверку» в воронке больше нет, по смыслу его заменил «Заполните Job
+  // Offer по инструкции» — шаг скрыт, как JOB_OFFER_SENT_CIEE: показывается «Job Offer получен».
   {
     id: "JOB_OFFER_UPLOAD_CIEE",
+    hidden: true,
+    shownAs: "JOB_OFFER_SENT_INTL_REP",
     group: "job_offer",
     order: 5.3,
     title: "Загрузите офер в кабинет CIEE",
@@ -224,20 +230,26 @@ export const STAGES = [
   // CIEE Oxana» — имя сотрудника в названии внутреннее, студенту его видеть
   // незачем, поэтому здесь шаг назван по сути. Он отличается от следующего:
   // здесь мы офер ОТПРАВИЛИ, а на «Передан в CIEE» спонсор начал проверку.
+  // Волна 6 (решение владельца): «Job Submitted to CIEE Oxana» — ВНУТРЕННИЙ этап. В дорожной карте его нет (ни текущим,
+  // ни пройденным): студент продолжает видеть «Job Offer получен» (shownAs). Сервер с волны 6 сам присылает
+  // JOB_OFFER_SENT_INTL_REP; запись этапа здесь оставлена для старого сервера и сверки констант (consts-check).
   {
     id: "JOB_OFFER_SENT_CIEE",
+    hidden: true,
+    shownAs: "JOB_OFFER_SENT_INTL_REP",
     group: "job_offer",
     order: 5.6,
-    title: "Офер отправлен в CIEE",
-    shortTitle: "Отправлен в CIEE",
+    // Волна 6 (17.10.2026, владелец): офер ещё не в CIEE — он у менеджера, который подаёт его спонсору.
+    title: "Офер готовится к подаче в CIEE",
+    shortTitle: "Подача в CIEE",
     actionRequired: false,
     severity: "active",
     icon: "📨",
-    description: "Мы передали ваш офер спонсору CIEE. От вас ничего не требуется.",
+    description: "Ваш офер у нашего менеджера — он подаст его спонсору CIEE. От вас ничего не требуется.",
     detail: {
-      whatsHappening: "Job Offer отправлен спонсору CIEE и поставлен в очередь на проверку.",
+      whatsHappening: "Офер передан нашему менеджеру, который подаёт его спонсору CIEE.",
       whatRequired: "Пока ничего.",
-      whatsNext: "Спонсор начнёт проверку офера и может запросить документы у работодателя.",
+      whatsNext: "Когда офер будет подан, этап сменится на «Job Offer передан в CIEE».",
     },
     cta: null,
   },
@@ -562,10 +574,17 @@ const STAGE_BY_ID = new Map(STAGES.map((s) => [s.id, s]));
 const GROUP_BY_ID = new Map(GROUPS.map((g) => [g.id, g]));
 
 // Linear order excludes branch stages (e.g. JOB_PROBLEM) — used for done/current/upcoming.
-const MAIN_LINE = STAGES.filter((s) => !s.branch).sort((a, b) => a.order - b.order);
+// Волна 6: и скрытые (внутренние) этапы — их нет в карте.
+const MAIN_LINE = STAGES.filter((s) => !s.branch && !s.hidden).sort((a, b) => a.order - b.order);
 
 export function getStage(id) {
   return STAGE_BY_ID.get(id) || null;
+}
+
+/** Волна 6: этап, который видит студент: скрытый внутренний этап (hidden) показывается как shownAs. */
+export function visibleStageId(id) {
+  const s = STAGE_BY_ID.get(id);
+  return s && s.hidden && s.shownAs ? s.shownAs : id;
 }
 
 export function getGroup(id) {
@@ -573,7 +592,7 @@ export function getGroup(id) {
 }
 
 export function getStagesByGroup(groupId) {
-  return STAGES.filter((s) => s.group === groupId && !s.branch).sort((a, b) => a.order - b.order);
+  return STAGES.filter((s) => s.group === groupId && !s.branch && !s.hidden).sort((a, b) => a.order - b.order);
 }
 
 /**
@@ -581,6 +600,7 @@ export function getStagesByGroup(groupId) {
  * Branch stages (JOB_PROBLEM) are only ever 'current' when actively selected.
  */
 export function stageStatus(stageId, currentStageId) {
+  currentStageId = visibleStageId(currentStageId); // волна 6: скрытый этап — как shownAs
   if (stageId === currentStageId) return "current";
   const stage = getStage(stageId);
   const current = getStage(currentStageId);
@@ -606,7 +626,7 @@ function findParentOrder(branchStage) {
  * already reached.
  */
 export function computeProgress(currentStageId) {
-  const current = getStage(currentStageId);
+  const current = getStage(visibleStageId(currentStageId)); // волна 6: скрытый этап — как shownAs
   if (!current) return 0;
   // P12-аудит (12.10.2026): последний этап пути — 100 %. Что ломалось: на «Виза J-1 одобрена»
   // визовая группа считалась как 6 из 7 этапов, и студент, прошедший весь путь, видел 95 %.

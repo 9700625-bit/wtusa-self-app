@@ -23,6 +23,7 @@ import {
   stageStatus,
   computeProgress,
   nextStage,
+  visibleStageId,
   GROUPS,
 } from "../config/roadmap.config.js";
 import { daysUntil, addDaysIso } from "../utils/format.js?v=3";
@@ -33,8 +34,16 @@ import { daysUntil, addDaysIso } from "../utils/format.js?v=3";
 function safeCurrentStage_(currentStageId) {
   return getStage(currentStageId) || getStage("ENROLLED");
 }
+// Волна 6 (решение владельца): внутренний этап «Job Submitted to CIEE Oxana» (JOB_OFFER_SENT_CIEE, hidden) студент
+// видит как «Job Offer получен» — даже если старый сервер прислал его в currentStageId.
+function viewState_(state) {
+  const id = state && state.currentStageId;
+  const vis = visibleStageId(id);
+  return vis === id ? state : Object.assign({}, state, { currentStageId: vis });
+}
 
 export function deriveActionCard(state) {
+  state = viewState_(state);
   const stage = safeCurrentStage_(state.currentStageId);
   if (!stage) return null;
   return {
@@ -79,6 +88,7 @@ function nearestBriefing(state) {
 }
 
 export function deriveDashboard(state) {
+  state = viewState_(state);
   const stage = safeCurrentStage_(state.currentStageId);
   return {
     participant: state.participant,
@@ -91,6 +101,7 @@ export function deriveDashboard(state) {
 }
 
 export function deriveRoadmap(state) {
+  state = viewState_(state);
   // Separate from status (done/current/upcoming, driven by amoCRM's
   // currentStageId): a stage can independently show "attended" once a
   // coordinator marks attended=yes on a linked event (see Events.gs
@@ -121,6 +132,8 @@ export function deriveRoadmap(state) {
 }
 
 export function deriveStageDetail(state, stageId) {
+  state = viewState_(state);
+  stageId = visibleStageId(stageId); // волна 6: ссылка на скрытый этап — его видимый
   const rawStage = getStage(stageId);
   if (!rawStage) return null;
 
@@ -174,6 +187,7 @@ export function deriveStageDetail(state, stageId) {
 }
 
 export function derivePayments(state) {
+  state = viewState_(state);
   // Only USD-denominated payments count toward the top "Оплачено" figure —
   // Payment 1 is pure KZT with no $ amount, so it can't be summed in.
   const paid = (state.payments || []).filter((p) => p.status === "paid");
