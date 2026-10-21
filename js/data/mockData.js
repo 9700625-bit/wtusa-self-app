@@ -10,8 +10,8 @@
 
 export const participant = {
   id: "usr_demo_1",
-  name: "Улпан",
-  fullName: "Асанова Улпан Бекаровна",
+  name: "Демо",
+  fullName: "Демо Студентка",
   program: "SELF",
   season: "2027",
   cieeId: "Будет добавлен после интеграции",
@@ -20,7 +20,7 @@ export const participant = {
 };
 
 export const coordinator = {
-  name: "Жансая",
+  name: "Координатор SELF",
   role: "Координатор SELF",
   telegramUsername: "abc_universe_support", // mock — used to build t.me link
 };
