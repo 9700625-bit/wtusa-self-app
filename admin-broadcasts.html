@@ -150,7 +150,7 @@ try {
 <main class="content">
 <div class="card">
 <h2>Новая рассылка</h2>
-<div class="sub" style="margin-bottom:12px">Сервер рассылает сам, по одному, с 9:00 до 21:00 по Алматы — страницу можно закрыть. Сначала «Предпросмотр», потом «Тест себе», потом «Запустить».</div>
+<div class="sub" style="margin-bottom:12px">Сервер рассылает сам, по одному, с 9:00 до 21:00 по Алматы — страницу можно закрыть. WhatsApp — не больше 6 сообщений за 10 минут на номер; после 3 ошибок отправки подряд рассылка встаёт на паузу (продолжить — кнопкой «Продолжить»). От 300 получателей — второе подтверждение. Сначала «Предпросмотр», потом «Тест себе», потом «Запустить».</div>
 
 <div class="row2">
   <div class="field">
@@ -373,7 +373,8 @@ async function adminPost(action, payload) {
       signal: ctrl ? ctrl.signal : undefined,
     });
     const json = await resp.json();
-    if (json.error) throw new Error(json.error);
+    // ТЗ 23 W (23.10.2026): ответ с вопросом (needConfirm / needConfirm2) — страница переспрашивает и повторяет запрос.
+    if (json.error) { const e = new Error(json.error); e.data = json; throw e; }
     return json;
   } catch (err) {
     if (ctrl && ctrl.signal.aborted) throw new Error("WRITE_TIMEOUT");
@@ -565,7 +566,20 @@ async function запустить() {
     : "bc" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   запускБезОтвета = { ключ, rid: requestId };
   try {
-    const r = await adminPost("adminBroadcastCreate", { segment: сегмент(), channel: канал(), text: $("bc-text").value, title: $("bc-title").value, confirmCount: n, requestId });
+    const тело = { segment: сегмент(), channel: канал(), text: $("bc-text").value, title: $("bc-title").value, confirmCount: n, requestId };
+    let r;
+    try {
+      r = await adminPost("adminBroadcastCreate", тело);
+    } catch (e0) {
+      // ТЗ 23 W2.4 (23.10.2026): от 300 получателей — второе подтверждение (сервер ничего не создал).
+      if (!(e0 && e0.data && e0.data.needConfirm2)) throw e0;
+      if (!window.confirm("ВТОРОЕ ПОДТВЕРЖДЕНИЕ\n\n" + String(e0.message).replace(/\s*Рассылка НЕ запущена\.?$/, "") + "\n\nТочно запустить рассылку на " + n + " получателей?")) {
+        запускБезОтвета = null;
+        сообщение("Не запущено: второе подтверждение не дано.", "warn");
+        return;
+      }
+      r = await adminPost("adminBroadcastCreate", Object.assign({}, тело, { confirm2: n }));
+    }
     запускБезОтвета = null;
     if (r.duplicate) сообщение("Такая рассылка уже создана — второй раз не запускаю.", "warn");
     else сообщение(`Рассылка запущена: ${r.count} получателей.${r.inHours ? "" : " Сейчас не рабочее время — отправка начнётся в 9:00 по Алматы."}`, "ok");
@@ -752,6 +766,8 @@ async function команда(id, cmd, item, btn) {
     return;
   }
   if (cmd === "stop" && !window.confirm("Остановить рассылку? Оставшиеся в очереди не получат сообщение. Продолжить её потом будет нельзя.")) return;
+  // ТЗ 23 W1 (решение владельца 23.10): «Продолжить» — с подтверждением; сервер пишет в журнал, кто нажал, и сообщает владельцу.
+  if (cmd === "resume" && !window.confirm("Вы уверены? Рассылка продолжится. Если WhatsApp был остановлен после 3 ошибок подряд, снова пойдут и автопривязка, и отложенные сообщения. Владельцу придёт сообщение, кто возобновил.")) return;
   btn.disabled = true;
   try {
     await adminPost("adminBroadcastControl", { id, command: cmd });
