@@ -30,6 +30,7 @@ const DOC_STATUS_META = {
   review: { tagClass: "review", label: "На проверке" },
   need: { tagClass: "need", label: "Исправить" },
   miss: { tagClass: "miss", label: "Нужно предоставить" },
+  not_required: { tagClass: "", label: "Пока не требуется" }, // ТЗ 34: транскрипт (серая плашка)
 };
 
 export function docTagHtml(status) {

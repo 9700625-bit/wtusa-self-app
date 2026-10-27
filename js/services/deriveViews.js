@@ -8,7 +8,7 @@
  * Expected `state` shape:
  * {
  *   participant, coordinator, currentStageId,
- *   documents: [{id,type,status,updatedAt,note,coordinatorComment}],
+ *   documents: [{type,status}] | null   (23.10.2026: лист «Документы» таблицы координаторов, D–I; null — блок скрыт),
  *   payments: [{id,label,amount,deadline,status,paidDate}],
  *   programCost, visaFees: [{id,label,amount,status}],
  *   briefings: [{id,title,description,date,time,status,link,materials}],

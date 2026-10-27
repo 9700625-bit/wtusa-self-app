@@ -1,40 +1,26 @@
 import * as api from "../services/api.js";
-import { docTagHtml } from "../components/statusBadge.js";
-import { esc } from "../utils/format.js?v=3";
+import { docsVisible, docsRowsHtml } from "../utils/docsView.js";
 import { openTelegramLink, hapticImpact } from "../services/telegram.js";
 
 export async function render(container) {
   const [documents, me] = await Promise.all([api.getDocuments(), api.getMe()]);
   const coordinatorUsername = me.coordinator && me.coordinator.telegramUsername;
 
-  // Was previously left as `` when documents.length === 0, rendering a
-  // visibly empty <div class="card"> with no content or explanation --
-  // reads as a broken/blank screen rather than "nothing here yet". Match
-  // the empty-state pattern already used in events.js.
-  const rowsHtml = documents.length
-    ? documents
-        .map(
-          (doc) => `
-      <div class="doc">
-        <div>
-          <b>${esc(doc.type)}</b>
-          <div class="small">${esc(doc.note)}</div>
-          ${doc.coordinatorComment ? `<div class="small" style="color:var(--danger);margin-top:4px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:4px"><path d="M4 5.5h16v10H9l-4.5 3.5z"/></svg>${esc(doc.coordinatorComment)}</div>` : ""}
-        </div>
-        ${docTagHtml(doc.status)}
-      </div>`
-        )
-        .join("")
-    : `<div class="sub">Список документов пока пуст — он появится, как только координатор его настроит.</div>`;
+  // 23.10.2026: статусы — из листа «Документы» таблицы координаторов (колонки D–I), а не прежний статичный список.
+  // documents === null — сервер блок не показывает (лист недоступен, ФИО не совпало, отказник): остаётся только
+  // «Как отправить документ».
+  const docsCard = docsVisible(documents)
+    ? `<div class="card">
+        <div class="kicker">Документы</div>
+        <h1>Мои документы</h1>
+        <div class="sub">Что уже получено ABC Universe и что ещё нужно сдать.</div>
+      </div>
+      <div class="card">${docsRowsHtml(documents)}</div>`
+    : `<div class="card"><div class="kicker">Документы</div></div>`;
 
   container.innerHTML = `
     <section class="screen active">
-      <div class="card">
-        <div class="kicker">Документы</div>
-        <h1>Мои документы</h1>
-        <div class="sub">Статусы проверки ABC Universe.</div>
-      </div>
-      <div class="card">${rowsHtml}</div>
+      ${docsCard}
       <div class="card">
         <h3>Как отправить документ</h3>
         <div class="sub" style="margin-bottom:12px">

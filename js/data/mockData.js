@@ -35,40 +35,15 @@ export function setCurrentStageId(id) {
   currentStageId = id;
 }
 
+// 23.10.2026: формат ответа сервера — колонки D–I листа «Документы» таблицы координаторов.
 export const documents = [
-  {
-    id: "doc_passport",
-    type: "Паспорт",
-    status: "ok", // ok | review | need | miss
-    updatedAt: "2026-08-20",
-    note: "Загружен 20 августа",
-    coordinatorComment: null,
-  },
-  {
-    id: "doc_university",
-    type: "Справка из университета",
-    status: "review",
-    updatedAt: "2026-08-21",
-    note: "Загружена 21 августа",
-    coordinatorComment: null,
-  },
-  {
-    id: "doc_student_id",
-    type: "Student ID",
-    status: "miss",
-    updatedAt: null,
-    note: "Документ не загружен",
-    coordinatorComment: null,
-  },
-  {
-    id: "doc_photo",
-    type: "Фото",
-    status: "need",
-    updatedAt: "2026-08-18",
-    note: "Нужно заменить файл",
-    coordinatorComment: "Необходимо загрузить более качественный скан — фото размыто.",
-  },
-];
+  { type: "Passport", status: "received" },
+  { type: "Birth Certificate", status: "received" },
+  { type: "Photo", status: "problem" },
+  { type: "Study Certificate", status: "received" },
+  { type: "Student ID", status: "missing" },
+  { type: "Transcript", status: "not_required", note: "Пока не нужен" },
+]
 
 export function setDocumentStatus(docId, status) {
   const doc = documents.find((d) => d.id === docId);
